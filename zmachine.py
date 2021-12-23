@@ -215,6 +215,8 @@ class zmachine():
             ptr += 2
 
     def lookup_dictionary(self, text):
+        # Of course, we could load the dictionary into a hashtable for fastest lookup.
+        # The dictionary is already loaded into memory though and a binary search is more fun!
         encoded = zscii_encode(text)
         ptr = self.dictionary_header
         num_separators = self.read_byte(ptr)
@@ -501,12 +503,12 @@ class zmachine():
         global1 = self.read_var(0x11)
         global2 = self.read_var(0x12)
         if self.flags1 & 0x2 == 0:
-            return f'Score: {global1}'.ljust(15, ' ') + f'Moves: {global2}'
+            return f'Score: {global1}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
         else:
             hh = str(global1 % 12).rjust(2, ' ')
             mm = global2
             meridian = 'AM' if global1 < 12 else 'PM'
-            return f'Time: {hh}:{mm:02} {meridian}'
+            return f'Time: {hh}:{mm:02} {meridian}'.ljust(17, ' ')
 
     def do_read(self, text_buffer, parse_buffer):
         command = self.input_handler()

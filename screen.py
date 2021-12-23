@@ -12,21 +12,19 @@ class screen():
         curses.wrapper(self.init_screen)
 
     def init_screen(self, stdscr):
-        stdscr.clear()
-        stdscr.erase()
         height, width = stdscr.getmaxyx()
         self.height = height
         self.width = width
         self.status_line = curses.newwin(1, width, 0, 0)
         self.status_line.attrset(curses.A_REVERSE)
-        self.status_line.addstr(0, 0, ' ' * (width - 1))
         self.game_window = curses.newwin(height - 1, width, 1, 0)
+        self.game_window.move(height - 2, 0)
         self.game_window.scrollok(True)
 
         while not self.zmachine.quit:
             self.zmachine.run_instruction()
         self.flush_buffer()
-        self.game_window.addstr("[Type any key to exit.]")
+        self.game_window.addstr("\n[Press any key to exit.]")
         self.game_window.getch()
 
     def flush_buffer(self):
@@ -94,7 +92,6 @@ class screen():
         self.buffer.write(str(text))
         if newline:
             self.buffer.write("\n")
-            #self.flush_buffer()
 
     def input_handler(self, lowercase = True):
         self.refresh_status_line()
@@ -108,7 +105,13 @@ class screen():
 
     def refresh_status_line(self):
         location = self.zmachine.get_location()
-        self.status_line.addstr(0, 0, ' ' * (self.width - 1))
+        right_status = self.zmachine.get_right_status()
+        # HACK: curses raises an exception when a character is written
+        # to the last character position in the window.
+        try:
+            self.status_line.addstr(0, 0, ' ' * self.width)
+        except:
+            pass
         self.status_line.addstr(0, 1, location)
-        self.status_line.addstr(0, self.width - 30, self.zmachine.get_right_status())
+        self.status_line.addstr(0, self.width - len(right_status) - 3, right_status)
         self.status_line.refresh()
