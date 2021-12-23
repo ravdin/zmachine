@@ -323,26 +323,7 @@ def op_put_prop(zm, *operands):
         zm.write_word(prop_ptr + 1, value)
 
 def op_read(zm, *operands):
-    command = zm.do_read()
-    text_buffer, parse_buffer = operands
-    max_text_len = zm.read_byte(text_buffer) + 1
-    text_ptr = text_buffer + 1
-    for c in command[:max_text_len]:
-        zm.write_byte(text_ptr, ord(c))
-        text_ptr += 1
-    zm.write_byte(text_ptr, 0)
-    separators = zm.separator_chars()
-    tokens, positions = tokenize(command, separators)
-    max_words = zm.read_byte(parse_buffer)
-    parse_ptr = parse_buffer + 1
-    zm.write_byte(parse_ptr, len(tokens))
-    parse_ptr += 1
-    for token, position in zip(tokens[:max_words], positions[:max_words]):
-        dictionary_ptr = zm.lookup_dictionary(token)
-        zm.write_word(parse_ptr, dictionary_ptr)
-        zm.write_byte(parse_ptr + 2, len(token))
-        zm.write_byte(parse_ptr + 3, position + 1)
-        parse_ptr += 4
+    zm.do_read(*operands)
 
 def op_print_char(zm, *operands):
     zscii_code = operands[0]

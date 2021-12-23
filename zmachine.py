@@ -508,8 +508,26 @@ class zmachine():
             meridian = 'AM' if global1 < 12 else 'PM'
             return f'Time: {hh}:{mm:02} {meridian}'
 
-    def do_read(self):
-        return self.input_handler()
+    def do_read(self, text_buffer, parse_buffer):
+        command = self.input_handler()
+        max_text_len = self.read_byte(text_buffer) + 1
+        text_ptr = text_buffer + 1
+        for c in command[:max_text_len]:
+            self.write_byte(text_ptr, ord(c))
+            text_ptr += 1
+        self.write_byte(text_ptr, 0)
+        separators = self.separator_chars()
+        tokens, positions = tokenize(command, separators)
+        max_words = self.read_byte(parse_buffer)
+        parse_ptr = parse_buffer + 1
+        self.write_byte(parse_ptr, len(tokens))
+        parse_ptr += 1
+        for token, position in zip(tokens[:max_words], positions[:max_words]):
+            dictionary_ptr = self.lookup_dictionary(token)
+            self.write_word(parse_ptr, dictionary_ptr)
+            self.write_byte(parse_ptr + 2, len(token))
+            self.write_byte(parse_ptr + 3, position + 1)
+            parse_ptr += 4
 
     def do_print(self, text, newline = False):
         self.print_handler(text, newline)

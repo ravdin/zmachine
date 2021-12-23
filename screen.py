@@ -37,11 +37,13 @@ class screen():
         line_count = 0
         for line in output_lines:
             self.game_window.addstr(line)
-            line_count += 1
+            if line[-1] == "\n":
+                line_count += 1
             if line_count == height - 2:
                 self.game_window.addstr('[MORE]')
                 self.game_window.refresh()
                 self.game_window.getch()
+                self.game_window.addstr(height - 1, 0, ' ' * 6)
                 self.game_window.move(height - 1, 0)
                 line_count = 0
         self.game_window.refresh()
