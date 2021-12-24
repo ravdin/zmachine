@@ -1,10 +1,10 @@
 from error import ZSCIIException
 
 def signed_operands(op):
-    def sign_and_call(*args):
+    def sign_and_execute(*args):
         zm, operands = args[0], [sign_uint16(o) for o in args[1:]]
         return op(zm, *operands)
-    return sign_and_call
+    return sign_and_execute
 
 def sign_uint16(num):
     if num >= 0x8000:
@@ -28,9 +28,8 @@ def tokenize(command, separator_chars = [',', '.', '"']):
                 separator_found = True
                 words += list(filter(lambda w: w != '', [word[pos+1:], word[pos], word[:pos]]))
                 break
-        if separator_found:
-            continue
-        tokens += [word]
+        if not separator_found:
+            tokens += [word]
     for t in tokens:
         pos = command[current_pos:].find(t)
         if len(positions) > 0:
@@ -40,14 +39,14 @@ def tokenize(command, separator_chars = [',', '.', '"']):
     return tokens, positions
 
 # TODO: Extend this for other versions besides V3.
-def zscii_decode(encoded, abbreviations = None):
+def zscii_decode(zm, encoded, abbreviation_lookup = False):
     result = []
     zchars = []
     for word in encoded:
         zchars += [word >> 10 & 0x1f, word >> 5 & 0x1f, word & 0x1f]
     A0 = 'abcdefghijklmnopqrstuvwxyz'
     A1 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    A2 = ' ^0123456789.,!?_#\'"/\-:()'
+    A2 = ' ^0123456789.,!?_#\'"/\\-:()'
     current_alphabet = A0
     zptr = 0
     while zptr < len(zchars):
@@ -55,8 +54,13 @@ def zscii_decode(encoded, abbreviations = None):
         if zchar == 0:
             result += [' ']
         elif zchar in (1, 2, 3):
+            if abbreviation_lookup:
+                raise ZSCIIException("Abbreviation lookup from abbreviation table")
             zptr += 1
-            result += [abbreviations[32 * (zchar - 1) + zchars[zptr]]]
+            index = ((zchar - 1) << 5) + zchars[zptr]
+            ptr = zm.word_addr(zm.abbreviation_table + index * 2)
+            abbreviation = zm.read_encoded_zscii(ptr)
+            result += [zscii_decode(zm, abbreviation, True)]
         elif zchar == 4:
             zptr += 1
             current_alphabet = A1

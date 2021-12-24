@@ -20,7 +20,6 @@ class zmachine():
         self.input_handler = self.default_input_handler
         self.show_status_handler = self.default_show_status_handler
         self.do_initialize()
-        self.setup_abbreviations()
 
     def do_run(self):
         while not self.quit:
@@ -64,6 +63,17 @@ class zmachine():
 
     def do_show_status(self):
         self.show_status_handler()
+
+    def do_restart(self):
+        transcript_bit = self.flags2 & 0x1
+        fixed_pitch_bit = self.flags2 & 0x2
+        with open(self.file, "rb") as s:
+            dynamic_mem = s.read(self.static_mem_ptr)
+            self.memory_map[:self.static_mem_ptr] = dynamic_mem
+        self.do_initialize()
+        flags2 = self.flags2 & 0xfc
+        flags2 |= fixed_pitch_bit | transcript_bit
+        self.write_byte(0x10, flags2)
 
     def do_save(self):
         filepath = os.path.dirname(self.file)
@@ -216,15 +226,6 @@ class zmachine():
         ptr = self.dictionary_header
         num_separators = self.read_byte(ptr)
         return [chr(self.read_byte(ptr + i + 1)) for i in range(num_separators)]
-
-    def setup_abbreviations(self):
-        self.abbreviations = [0] * 96
-        ptr = self.abbreviation_table
-        for i in range(len(self.abbreviations)):
-            abbrev_ptr = self.word_addr(ptr)
-            encoded = self.read_encoded_zscii(abbrev_ptr)
-            self.abbreviations[i] = zscii_decode(encoded)
-            ptr += 2
 
     def lookup_dictionary(self, text):
         # Of course, we could load the dictionary into a hashtable for fastest lookup.
@@ -509,7 +510,7 @@ class zmachine():
         obj_ptr = self.lookup_object(obj_id)
         prop_ptr = self.byte_addr(obj_ptr + 7)
         encoded = self.read_encoded_zscii(prop_ptr + 1)
-        return zscii_decode(encoded, self.abbreviations)
+        return zscii_decode(self, encoded)
 
     def get_right_status(self):
         global1 = self.read_var(0x11)
@@ -547,9 +548,8 @@ class zmachine():
     def do_print(self, text, newline = False):
         self.print_handler(text, newline)
 
-    def do_print_encoded(self, ptr, newline = False):
-        encoded = self.read_encoded_zscii(ptr)
-        text = zscii_decode(encoded, self.abbreviations)
+    def do_print_encoded(self, encoded, newline = False):
+        text = zscii_decode(self, encoded)
         self.do_print(text, newline)
 
     opcodes = \

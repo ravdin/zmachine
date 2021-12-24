@@ -212,19 +212,21 @@ def op_print_obj(zm, *operands):
         raise Exception('Invalid object: {0}'.format(obj_id))
     obj_ptr = zm.lookup_object(obj_id)
     prop_ptr = zm.byte_addr(obj_ptr + 7)
-    zm.do_print_encoded(prop_ptr + 1)
+    encoded = zm.read_encoded_zscii(prop_ptr + 1)
+    zm.do_print_encoded(encoded)
 
 @signed_operands
 def op_jump(zm, *operands):
-    zm.pc = zm.pc + operands[0] - 2
+    zm.pc += operands[0] - 2
 
 def op_print_paddr(zm, *operands):
-    addr = operands[0] * 2
-    zm.do_print_encoded(addr)
+    addr = operands[0] << 1
+    encoded = zm.read_encoded_zscii(addr)
+    zm.do_print_encoded(encoded)
 
 def op_load(zm, *operands):
     varnum = operands[0]
-    ref_val = zm.read_var(varnum, )
+    ref_val = zm.read_var(varnum)
     zm.do_store(ref_val)
 
 def op_rtrue(zm, *operands):
@@ -236,14 +238,12 @@ def op_rfalse(zm, *operands):
 def op_print(zm, *operands):
     encoded = zm.read_encoded_zscii(zm.pc)
     zm.pc += len(encoded) * 2
-    text = zscii_decode(encoded, zm.abbreviations)
-    zm.do_print(text)
+    zm.do_print_encoded(encoded)
 
 def op_print_ret(zm, *operands):
     encoded = zm.read_encoded_zscii(zm.pc)
     zm.pc += len(encoded) * 2
-    text = zscii_decode(encoded, zm.abbreviations)
-    zm.do_print(text, True)
+    zm.do_print_encoded(encoded, True)
     zm.do_return(True)
 
 def op_nop(zm, *operands):
@@ -261,18 +261,7 @@ def op_restore(zm, *operands):
     zm.do_branch(success)
 
 def op_restart(zm, *operands):
-    flag2_ptr = 0x10
-    flag2 = zm.read_byte(flag2_ptr)
-    transcript_bit = flag2 & 0x1
-    fixed_pitch_bit = flag2 & 0x2
-    static_mem_start = zm.read_word(0xe)
-    with open(zm.file, "rb") as s:
-        dynamic_mem = s.read(static_mem_start)
-        zm.memory_map[:static_mem_start] = dynamic_mem
-    flag2 = zm.read_byte(flag2_ptr) & 0xfc
-    flag2 |= fixed_pitch_bit | transcript_bit
-    zm.write_byte(flag2_ptr, flag2)
-    zm.do_initialize()
+    zm.do_restart()
 
 def op_ret_popped(zm, *operands):
     retval = zm.stack_pop()
