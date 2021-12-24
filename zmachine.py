@@ -75,7 +75,7 @@ class zmachine():
                 return False
         header_data = self.release_number
         header_data += self.serial_number
-        header_data += self.checksum
+        header_data += self.checksum.to_bytes(2, "big")
         header_data += self.pc.to_bytes(3, "big")
         header_chunk = zmachine.iff_chunk('IFhd', header_data)
         dynamic_memory = self.compress_dynamic_memory()
@@ -136,22 +136,9 @@ class zmachine():
         if release_number != self.release_number or \
            serial_number != self.serial_number or \
            checksum != self.checksum:
-            do_print("Invalid save file!", True)
+            self.do_print("Invalid save file!", True)
             return False
-        dynamic_mem = []
-        with open(self.file, 'rb') as s:
-            dynamic_mem = bytearray(s.read(self.static_mem_ptr))
-        mem_ptr = 0
-        byte_ptr = 0
-        while byte_ptr < len(encoded_memory):
-            val = encoded_memory[byte_ptr]
-            if val == 0:
-                mem_ptr += int.from_bytes(encoded_memory[byte_ptr + 1:byte_ptr + 3], "big")
-                byte_ptr += 3
-            else:
-                dynamic_mem[mem_ptr] ^= val
-                mem_ptr += 1
-                byte_ptr += 1
+        dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
         self.memory_map[:self.static_mem_ptr] = dynamic_mem
         self.pc = pc
         self.frame_ptr = frame_ptr
@@ -178,13 +165,21 @@ class zmachine():
             save_file = self.save_file
         return save_file
 
+    # There's no need to compress the dynamic memory for the save file
+    # as modern computers have plenty of storage space.
+    # This method (from Bryan Scattergood) is more interesting and elegant.
+    # The main idea is to exclusive-or each byte of the dynamic memory with
+    # the byte in the original game file. If the result is zero (not changed),
+    # write a zero byte followed by the number of zero bytes (i.e. the number)
+    # of bytes we can skip when restoring the dynamic memory).
+    # Otherwise, write the result of the exclusive or.
     def compress_dynamic_memory(self):
         result = [0] * self.static_mem_ptr
         result_ptr = 0
         with open(self.file, "rb") as s:
             dynamic_mem = bytearray(s.read(self.static_mem_ptr))
         zero_count = 0
-        for ptr in range(static_mem_ptr):
+        for ptr in range(self.static_mem_ptr):
             story = self.read_byte(ptr)
             original = dynamic_mem[ptr]
             val = story ^ original
@@ -199,6 +194,23 @@ class zmachine():
                 result[result_ptr] = val
                 result_ptr += 1
         return bytearray(result[:result_ptr])
+
+    def uncompress_dynamic_memory(self, encoded_memory):
+        dynamic_mem = []
+        with open(self.file, 'rb') as s:
+            dynamic_mem = bytearray(s.read(self.static_mem_ptr))
+        mem_ptr = 0
+        byte_ptr = 0
+        while byte_ptr < len(encoded_memory):
+            val = encoded_memory[byte_ptr]
+            if val == 0:
+                mem_ptr += int.from_bytes(encoded_memory[byte_ptr + 1:byte_ptr + 3], "big")
+                byte_ptr += 3
+            else:
+                dynamic_mem[mem_ptr] ^= val
+                mem_ptr += 1
+                byte_ptr += 1
+        return dynamic_mem
 
     def separator_chars(self):
         ptr = self.dictionary_header
@@ -503,7 +515,8 @@ class zmachine():
         global1 = self.read_var(0x11)
         global2 = self.read_var(0x12)
         if self.flags1 & 0x2 == 0:
-            return f'Score: {global1}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
+            score = sign_uint16(global1)
+            return f'Score: {score}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
         else:
             hh = str(global1 % 12).rjust(2, ' ')
             mm = global2
