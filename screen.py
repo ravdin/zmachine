@@ -5,6 +5,8 @@ import textwrap
 class screen():
     def __init__(self, zmachine):
         self.zmachine = zmachine
+        if self.zmachine.quit:
+            return
         self.buffer = io.StringIO()
         zmachine.set_print_handler(self.print_handler)
         zmachine.set_input_handler(self.input_handler)

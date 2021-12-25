@@ -29,9 +29,9 @@ class zmachine():
         self.version = self.read_byte(0)
         if self.version != 3:
             if self.version <= 6:
-                do_print(f"Unsupported version V{self.version}")
+                self.do_print(f"Unsupported zmachine version: v{self.version}", True)
             else:
-                do_print("Unrecognized z-machine file")
+                self.do_print("Unrecognized z-machine file", True)
             self.quit = True
             return
         self.flags1 = self.read_byte(0x1)
