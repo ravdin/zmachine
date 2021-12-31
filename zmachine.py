@@ -84,7 +84,7 @@ class zmachine():
             if self.input_handler() != 'y':
                 return False
         header_data = self.release_number[:]
-        header_data += self.serial_number[:]
+        header_data += self.serial_number
         header_data += self.checksum.to_bytes(2, "big")
         header_data += self.pc.to_bytes(3, "big")
         header_chunk = zmachine.iff_chunk('IFhd', header_data)
