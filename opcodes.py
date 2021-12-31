@@ -198,7 +198,8 @@ def op_dec(zm, *operands):
 
 def op_print_addr(zm, *operands):
     ptr = operands[0]
-    zm.do_print_encoded(ptr)
+    encoded = zm.read_encoded_zscii(ptr)
+    zm.do_print_encoded(encoded)
 
 def op_ret(zm, *operands):
     zm.do_return(operands[0])

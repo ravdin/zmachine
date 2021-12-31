@@ -57,7 +57,7 @@ def zscii_decode(zm, encoded, abbreviation_lookup = False):
             if abbreviation_lookup:
                 raise ZSCIIException("Abbreviation lookup from abbreviation table")
             zptr += 1
-            index = ((zchar - 1) << 5) + zchars[zptr]
+            index = ((zchar - 1) << 5) | zchars[zptr]
             ptr = zm.word_addr(zm.abbreviation_table + index * 2)
             abbreviation = zm.read_encoded_zscii(ptr)
             result += [zscii_decode(zm, abbreviation, True)]
@@ -91,7 +91,7 @@ def zscii_decode(zm, encoded, abbreviation_lookup = False):
 
 def zscii_encode(text, word_len = 4):
     # TODO: standardize this for other zmachine versions
-    A2 = ' ^0123456789.,!?_#\'"/\-:()'
+    A2 = ' ^0123456789.,!?_#\'"/\\-:()'
     zlen = word_len // 2 * 3
     zchars = []
     for c in text:

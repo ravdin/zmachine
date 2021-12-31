@@ -83,8 +83,8 @@ class zmachine():
             self.do_print('Overwrite existing file? (Y is affirmative) ')
             if self.input_handler() != 'y':
                 return False
-        header_data = self.release_number
-        header_data += self.serial_number
+        header_data = self.release_number[:]
+        header_data += self.serial_number[:]
         header_data += self.checksum.to_bytes(2, "big")
         header_data += self.pc.to_bytes(3, "big")
         header_chunk = zmachine.iff_chunk('IFhd', header_data)
@@ -117,29 +117,23 @@ class zmachine():
         transcript_bit = self.flags2 & 0x1
         fixed_pitch_bit = self.flags2 & 0x2
 
-        release_number = 0
-        serial_number = 0
-        checksum = 0
-        pc = 0
-        encoded_memory = 0
-        frame_ptr = 0
-        num_locals = 0
-        stack_data = 0
-        local_vars = []
+        header_chunk = None
+        mem_chunk = None
+        stack_chunk = None
+        with open(save_full_path, 'rb') as s:
+            header_chunk = zmachine.iff_chunk.read(s)
+            mem_chunk = zmachine.iff_chunk.read(s)
+            stack_chunk = zmachine.iff_chunk.read(s)
         try:
-            with open(save_full_path, 'rb') as s:
-                header_chunk = zmachine.iff_chunk.read(s)
-                mem_chunk = zmachine.iff_chunk.read(s)
-                stack_chunk = zmachine.iff_chunk.read(s)
-                release_number = header_chunk.data[0:2]
-                serial_number = header_chunk.data[2:8]
-                checksum = int.from_bytes(header_chunk.data[8:10], "big")
-                pc = int.from_bytes(header_chunk.data[10:13], "big")
-                encoded_memory = mem_chunk.data
-                frame_ptr = int.from_bytes(stack_chunk.data[0:2], "big")
-                num_locals = int.from_bytes(stack_chunk.data[2:3], "big")
-                local_vars = stack_chunk.data[3:3+2*num_locals]
-                stack_data = stack_chunk.data[3+2*num_locals:]
+            release_number = header_chunk.data[0:2]
+            serial_number = header_chunk.data[2:8]
+            checksum = int.from_bytes(header_chunk.data[8:10], "big")
+            pc = int.from_bytes(header_chunk.data[10:13], "big")
+            encoded_memory = mem_chunk.data
+            frame_ptr = int.from_bytes(stack_chunk.data[0:2], "big")
+            num_locals = int.from_bytes(stack_chunk.data[2:3], "big")
+            local_vars = stack_chunk.data[3:3+2*num_locals]
+            stack_data = stack_chunk.data[3+2*num_locals:]
         except Exception as err:
             #print(f'{err}')
             return False
@@ -519,9 +513,13 @@ class zmachine():
             score = sign_uint16(global1)
             return f'Score: {score}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
         else:
-            hh = str(global1 % 12).rjust(2, ' ')
-            mm = global2
             meridian = 'AM' if global1 < 12 else 'PM'
+            if global1 == 0:
+                global1 = 12
+            elif global1 > 12:
+                global1 -= 12
+            hh = str(global1).rjust(2, ' ')
+            mm = global2
             return f'Time: {hh}:{mm:02} {meridian}'.ljust(17, ' ')
 
     def do_read(self, text_buffer, parse_buffer):
