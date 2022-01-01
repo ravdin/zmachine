@@ -15,6 +15,9 @@ class screen():
 
     def init_screen(self, stdscr):
         height, width = stdscr.getmaxyx()
+        if self.zmachine.version >= 4:
+            self.zmachine.set_height(height)
+            self.zmachine.set_width(width)
         self.height = height
         self.width = width
         self.status_line = curses.newwin(1, width, 0, 0)

@@ -2,6 +2,87 @@ import random
 import time
 from utils import *
 
+def get_opcodes(version):
+    predicate = lambda x: version >= x.min_version and version <= x.max_version
+    versioned = filter(predicate, opcodes.get_all_opcodes())
+    return {item.opcode: item.op for item in versioned}
+
+class opcodes():
+    def __init__(self, op, opcode, min_version = 1, max_version = 6):
+        self.op = op
+        self.opcode = opcode
+        self.min_version = min_version
+        self.max_version = max_version
+
+    @classmethod
+    def get_all_opcodes(cls):
+        return [
+            cls(op_je, 1),
+            cls(op_jl, 2),
+            cls(op_jg, 3),
+            cls(op_dec_chk, 4),
+            cls(op_inc_chk, 5),
+            cls(op_jin, 6, max_version = 3),
+            cls(op_jin_v4, 6, 4),
+            cls(op_test, 7),
+            cls(op_or, 8),
+            cls(op_and, 9),
+            cls(op_test_attr, 10),
+            cls(op_set_attr, 11),
+            cls(op_clear_attr, 12),
+            cls(op_store, 13),
+            #cls(op_insert_obj, 14),
+            cls(op_loadw, 15),
+            cls(op_loadb, 16),
+            #cls(op_get_prop, 17),
+            #cls(op_get_prop_addr, 18),
+            cls(op_get_next_prop, 19),
+            cls(op_add, 20),
+            cls(op_sub, 21),
+            cls(op_mul, 22),
+            cls(op_div, 23),
+            cls(op_mod, 24),
+            cls(op_jz, 128),
+            #cls(op_get_sibling, 129),
+            #cls(op_get_child, 130),
+            #cls(op_get_parent, 131),
+            #cls(op_get_prop_len, 132),
+            cls(op_inc, 133),
+            cls(op_dec, 134),
+            cls(op_print_addr, 135),
+            cls(op_call_1s, 136, 4),
+            #cls(op_remove_obj, 137),
+            #cls(op_print_obj, 138),
+            cls(op_ret, 139),
+            cls(op_jump, 140),
+            cls(op_print_paddr, 141),
+            cls(op_load, 142),
+            cls(op_rtrue, 176),
+            cls(op_rfalse, 177),
+            cls(op_print, 178),
+            cls(op_print_ret, 179),
+            cls(op_nop, 180),
+            cls(op_save, 181),
+            cls(op_restore, 182),
+            cls(op_restart, 183),
+            cls(op_ret_popped, 184),
+            cls(op_pop, 185),
+            cls(op_quit, 186),
+            cls(op_new_line, 187),
+            cls(op_show_status, 188, 3),
+            cls(op_verify, 189, 3),
+            cls(op_call, 224),
+            cls(op_storew, 225),
+            cls(op_storeb, 226),
+            cls(op_put_prop, 227),
+            cls(op_read, 228),
+            cls(op_print_char, 229),
+            cls(op_print_num, 230),
+            cls(op_random, 231),
+            cls(op_push, 232),
+            cls(op_pull, 233)
+        ]
+
 def op_je(zm, *operands):
     a = operands[0]
     zm.do_branch(any(a == b for b in operands[1:]))
@@ -34,6 +115,12 @@ def op_jin(zm, *operands):
     obj_a_parent = zm.read_byte(obj_a_ptr + 4)
     zm.do_branch(obj_a_parent == parent_id)
 
+def op_jin_v4(zm, *operands):
+    obj_id, parent_id = operands
+    obj_a_ptr = zm.lookup_object(obj_id)
+    obj_a_parent = zm.read_word(obj_a_ptr + 6)
+    zm.do_branch(obj_a_parent == parent_id)
+
 def op_test(zm, *operands):
     bitmap, flags = operands
     zm.do_branch(bitmap & flags == flags)
@@ -48,24 +135,30 @@ def op_and(zm, *operands):
 
 def op_test_attr(zm, *operands):
     obj_id, attr_num = operands
+    byte_offset = attr_num // 8
+    bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
-    attributes = zm.read_dword(obj_ptr)
-    attr_val = attributes & (0x80000000 >> attr_num)
-    zm.do_branch(attr_val)
+    attributes = zm.read_byte(obj_ptr + byte_offset)
+    attr_flags = attributes & (0x80 >> bit_offset)
+    zm.do_branch(attr_flags)
 
 def op_set_attr(zm, *operands):
-    obj_id, attr = operands
+    obj_id, attr_num = operands
+    byte_offset = attr_num // 8
+    bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
-    attr_flags = zm.read_dword(obj_ptr)
-    attr_flags |= (0x80000000 >> attr)
-    zm.write_dword(obj_ptr, attr_flags)
+    attr_flags = zm.read_byte(obj_ptr + byte_offset)
+    attr_flags |= (0x80 >> bit_offset)
+    zm.write_byte(obj_ptr + byte_offset, attr_flags)
 
 def op_clear_attr(zm, *operands):
-    obj_id, attr = operands
+    obj_id, attr_num = operands
+    byte_offset = attr_num // 8
+    bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
-    attr_flags = zm.read_dword(obj_ptr)
-    attr_flags &= (~(0x80000000 >> attr) & 0xffffffff)
-    zm.write_dword(obj_ptr, attr_flags)
+    attr_flags = zm.read_byte(obj_ptr + byte_offset)
+    attr_flags &= (~(0x80 >> bit_offset) & 0xff)
+    zm.write_byte(obj_ptr + byte_offset, attr_flags)
 
 def op_store(zm, *operands):
     varnum, value = operands
@@ -201,11 +294,12 @@ def op_print_addr(zm, *operands):
     encoded = zm.read_encoded_zscii(ptr)
     zm.do_print_encoded(encoded)
 
-def op_ret(zm, *operands):
-    zm.do_return(operands[0])
-
-def op_remove_obj(zm, *operands):
-    zm.orphan_object(operands[0])
+def op_call_1s(zm, *operands):
+    if len(operands) == 0 or operands[0] == 0:
+        zm.do_store(0)
+        return
+    call_addr = zm.unpack_addr(operands[0])
+    zm.do_routine(call_addr)
 
 def op_print_obj(zm, *operands):
     obj_id = operands[0]
@@ -216,12 +310,18 @@ def op_print_obj(zm, *operands):
     encoded = zm.read_encoded_zscii(prop_ptr + 1)
     zm.do_print_encoded(encoded)
 
+def op_ret(zm, *operands):
+    zm.do_return(operands[0])
+
+def op_remove_obj(zm, *operands):
+    zm.orphan_object(operands[0])
+
 @signed_operands
 def op_jump(zm, *operands):
     zm.pc += operands[0] - 2
 
 def op_print_paddr(zm, *operands):
-    addr = operands[0] << 1
+    addr = zm.packed_addr(operands[0])
     encoded = zm.read_encoded_zscii(addr)
     zm.do_print_encoded(encoded)
 
@@ -288,7 +388,7 @@ def op_call(zm, *operands):
         # Legal state, return 0
         zm.do_store(0)
         return
-    call_addr, args = operands[0] << 1, operands[1:]
+    call_addr, args = zm.unpack_addr(operands[0]), operands[1:]
     zm.do_routine(call_addr, args)
 
 def op_storew(zm, *operands):

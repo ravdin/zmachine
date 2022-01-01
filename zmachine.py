@@ -4,6 +4,8 @@ import opcodes
 from utils import *
 from error import *
 
+SUPPORTED_VERSIONS = (3, 4)
+
 class zmachine():
     def __init__(self, file, debug = False):
         with open(file, "rb") as s:
@@ -27,13 +29,16 @@ class zmachine():
 
     def do_initialize(self):
         self.version = self.read_byte(0)
-        if self.version != 3:
+        if self.version not in SUPPORTED_VERSIONS:
             if self.version <= 6:
                 self.do_print(f"Unsupported zmachine version: v{self.version}", True)
             else:
                 self.do_print("Unrecognized z-machine file", True)
             self.quit = True
             return
+        self.PROPERTY_DEFAULTS_LENGTH = 0x1f if self.version <= 3 else 0x3f
+        self.OBJECT_BYTES = 9 if self.version <= 3 else 14
+        self.opcodes = opcodes.get_opcodes(self.version)
         self.flags1 = self.read_byte(0x1)
         self.release_number = self.memory_map[0x2:0x4]
         self.pc = self.byte_addr(0x6)
@@ -51,6 +56,12 @@ class zmachine():
         if self.save_file == '':
             filename = os.path.basename(self.file)
             self.save_file = '{0}.sav'.format(os.path.splitext(filename)[0])
+
+    def set_height(self, height):
+        self.write_byte(0x20, height)
+
+    def set_width(self, width):
+        self.write_byte(0x21, width)
 
     def do_verify(self):
         checksum = 0
@@ -253,8 +264,8 @@ class zmachine():
             # long form, 2OP
             opcode_number = opcode & 0x1f
             operands = [
-                self.read_operand(1 if opcode >> 6 & 0x1 == 0 else 2)[0],
-                self.read_operand(1 if opcode >> 5 & 0x1 == 0 else 2)[0]
+                self.read_operand(1 if opcode & 0x40 == 0 else 2)[0],
+                self.read_operand(1 if opcode & 0x20 == 0 else 2)[0]
             ]
         elif opcode <= 0xbf:
             # short form, except 0xbe
@@ -278,6 +289,7 @@ class zmachine():
                     break
                 operands += [operand]
         try:
+            print('{0:x} {1}'.format(instruction_ptr, opcode_number))
             op = self.opcodes[opcode_number]
             op(self, *operands)
         except KeyError:
@@ -336,7 +348,12 @@ class zmachine():
         return self.read_word(ptr) << 1
 
     def packed_addr(self, ptr):
-        return self.read_word(ptr) << 1
+        packed_addr = self.read_word(ptr)
+        return self.unpack_addr(packed_addr)
+
+    def unpack_addr(self, packed_addr):
+        shift = 1 if self.version <= 3 else 2
+        return packed_addr << shift
 
     def read_byte(self, ptr):
         return self.memory_map[ptr]
@@ -399,7 +416,9 @@ class zmachine():
     def lookup_object(self, obj_id):
         if obj_id == 0:
             return None
-        return self.object_header + 31 * 2 + 9 * (obj_id - 1)
+        return self.object_header + \
+            self.PROPERTY_DEFAULTS_LENGTH * 2 + \
+            self.OBJECT_BYTES * (obj_id - 1)
 
     def orphan_object(self, obj_id):
         parent_offset, sibling_offset, child_offset = 4, 5, 6
@@ -421,23 +440,34 @@ class zmachine():
         self.write_byte(obj_ptr + sibling_offset, 0)
 
     def lookup_property(self, obj_id, prop_id):
+        def read_property(ptr):
+            size_byte = self.read_byte(ptr)
+            if size_byte == 0:
+                return 0, 0
+            if self.version <= 3:
+                return size_byte & 0x1f, (size_byte >> 5) + 1
+            else:
+                num = size_byte & 0x3f
+                if size_byte & 0x80 == 0x80:
+                    data_bytes = self.read_byte(ptr + 1) & 0x3f
+                    if data_bytes == 0:
+                        data_bytes = 0x40
+                    return num, data_bytes + 1
+                else:
+                    return num, 1 if size_byte & 0x40 == 0 else 2
         obj_ptr = self.lookup_object(obj_id)
-        prop_ptr = self.byte_addr(obj_ptr + 7)
+        prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
         text_len = self.read_byte(prop_ptr)
         prop_ptr += 2 * text_len + 1
         num = 0xff
         while True:
-            size_byte = self.read_byte(prop_ptr)
-            if size_byte == 0:
-                break
-            num = size_byte & 0x1f
+            num, size = read_property(prop_ptr)
             if num <= prop_id:
                 break
-            size = (size_byte >> 5) + 1
             prop_ptr += size + 1
         return prop_ptr if num == prop_id else None
 
-    def do_routine(self, call_addr, args):
+    def do_routine(self, call_addr, args = []):
         store = self.read_from_pc()
         self.stack_push(self.pc)
         self.stack_push(store)
@@ -549,72 +579,6 @@ class zmachine():
     def do_print_encoded(self, encoded, newline = False):
         text = zscii_decode(self, encoded)
         self.do_print(text, newline)
-
-    opcodes = \
-    {
-        1:   opcodes.op_je,
-        2:   opcodes.op_jl,
-        3:   opcodes.op_jg,
-        4:   opcodes.op_dec_chk,
-        5:   opcodes.op_inc_chk,
-        6:   opcodes.op_jin,
-        7:   opcodes.op_test,
-        8:   opcodes.op_or,
-        9:   opcodes.op_and,
-        10:  opcodes.op_test_attr,
-        11:  opcodes.op_set_attr,
-        12:  opcodes.op_clear_attr,
-        13:  opcodes.op_store,
-        14:  opcodes.op_insert_obj,
-        15:  opcodes.op_loadw,
-        16:  opcodes.op_loadb,
-        17:  opcodes.op_get_prop,
-        18:  opcodes.op_get_prop_addr,
-        19:  opcodes.op_get_next_prop,
-        20:  opcodes.op_add,
-        21:  opcodes.op_sub,
-        22:  opcodes.op_mul,
-        23:  opcodes.op_div,
-        24:  opcodes.op_mod,
-        128: opcodes.op_jz,
-        129: opcodes.op_get_sibling,
-        130: opcodes.op_get_child,
-        131: opcodes.op_get_parent,
-        132: opcodes.op_get_prop_len,
-        133: opcodes.op_inc,
-        134: opcodes.op_dec,
-        135: opcodes.op_print_addr,
-        137: opcodes.op_remove_obj,
-        138: opcodes.op_print_obj,
-        139: opcodes.op_ret,
-        140: opcodes.op_jump,
-        141: opcodes.op_print_paddr,
-        142: opcodes.op_load,
-        176: opcodes.op_rtrue,
-        177: opcodes.op_rfalse,
-        178: opcodes.op_print,
-        179: opcodes.op_print_ret,
-        180: opcodes.op_nop,
-        181: opcodes.op_save,
-        182: opcodes.op_restore,
-        183: opcodes.op_restart,
-        184: opcodes.op_ret_popped,
-        185: opcodes.op_pop,
-        186: opcodes.op_quit,
-        187: opcodes.op_new_line,
-        188: opcodes.op_show_status,
-        189: opcodes.op_verify,
-        224: opcodes.op_call,
-        225: opcodes.op_storew,
-        226: opcodes.op_storeb,
-        227: opcodes.op_put_prop,
-        228: opcodes.op_read,
-        229: opcodes.op_print_char,
-        230: opcodes.op_print_num,
-        231: opcodes.op_random,
-        232: opcodes.op_push,
-        233: opcodes.op_pull
-    }
 
     class iff_chunk():
         def __init__(self, header, data):
