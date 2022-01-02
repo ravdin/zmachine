@@ -21,6 +21,12 @@ class zmachine():
         self.print_handler = self.default_print_handler
         self.input_handler = self.default_input_handler
         self.show_status_handler = self.default_show_status_handler
+        self.erase_window_handler = self.default_erase_window_hander
+        self.split_window_handler = self.default_split_window_handler
+        self.set_window_handler = self.default_set_window_handler
+        self.set_buffer_mode_handler = self.default_set_buffer_mode_handler
+        self.set_cursor_handler = self.default_set_cursor_handler
+        self.set_text_style_handler = self.default_set_text_style_handler
         self.do_initialize()
 
     def do_run(self):
@@ -235,7 +241,14 @@ class zmachine():
     def lookup_dictionary(self, text):
         # Of course, we could load the dictionary into a hashtable for fastest lookup.
         # The dictionary is already loaded into memory though and a binary search is more fun!
-        encoded = zscii_encode(text)
+        def read_entry(ptr):
+            result = self.read_dword(ptr)
+            if self.version >= 4:
+                result <<= 16
+                result |= self.read_word(ptr + 4)
+            return result
+        encoded_len = 4 if self.version <= 3 else 6
+        encoded = zscii_encode(text, encoded_len)
         ptr = self.dictionary_header
         num_separators = self.read_byte(ptr)
         entry_length = self.read_byte(ptr + num_separators + 1)
@@ -246,7 +259,7 @@ class zmachine():
         while lo < hi:
             mid = (lo + hi) // 2
             mid_ptr = ptr + mid * entry_length
-            entry = self.read_dword(mid_ptr)
+            entry = read_entry(mid_ptr)
             if entry == encoded:
                 return mid_ptr
             elif entry < encoded:
@@ -254,7 +267,7 @@ class zmachine():
             else:
                 hi = mid - 1
         lo_ptr = ptr + lo * entry_length
-        return lo_ptr if self.read_dword(lo_ptr) == encoded else 0
+        return lo_ptr if read_entry(lo_ptr) == encoded else 0
 
     def run_instruction(self):
         instruction_ptr = self.pc
@@ -571,6 +584,24 @@ class zmachine():
     def default_show_status_handler(self):
         pass
 
+    def default_erase_window_hander(self, num):
+        pass
+
+    def default_split_window_handler(self, lines):
+        pass
+
+    def default_set_window_handler(self, window):
+        pass
+
+    def default_set_buffer_mode_handler(self, mode):
+        pass
+
+    def default_set_cursor_handler(self, y, x):
+        pass
+
+    def default_set_text_style_handler(self, style):
+        pass
+
     def set_print_handler(self, handler):
         self.print_handler = handler
 
@@ -579,6 +610,24 @@ class zmachine():
 
     def set_show_status_handler(self, handler):
         self.show_status_handler = handler
+
+    def set_erase_window_handler(self, handler):
+        self.erase_window_handler = handler
+
+    def set_split_window_handler(self, handler):
+        self.split_window_handler = handler
+
+    def set_set_window_handler(self, handler):
+        self.set_window_handler = handler
+
+    def set_set_buffer_mode_handler(self, handler):
+        self.set_buffer_mode_handler = handler
+
+    def set_set_cursor_handler(self, handler):
+        self.set_cursor_handler = handler
+
+    def set_set_text_style_handler(self, handler):
+        self.set_text_style_handler = handler
 
     def get_object_text(self, obj_id):
         obj_ptr = self.lookup_object(obj_id)

@@ -9,30 +9,47 @@ class screen():
         if self.zmachine.quit:
             return
         builders = {
-            3: screen.screen_v3_builder(zmachine)
+            3: screen.screen_v3_builder,
+            4: screen.screen_v4_builder
         }
-        curses.wrapper(builders[self.zmachine.version].build)
+        builder = builders[self.zmachine.version](zmachine)
+        curses.wrapper(builder.build)
 
-    class screen_builder():
+    class abstract_screen_builder():
         def __init__(self, zmachine):
             self.zmachine = zmachine
+            self.buffer = io.StringIO()
+            self.buffered_output = True
 
         def build(self, stdscr):
-            self.buffer = io.StringIO()
+            height, width = stdscr.getmaxyx()
+            self.height = height
+            self.width = width
             self.zmachine.set_print_handler(self.print_handler)
             self.zmachine.set_input_handler(self.input_handler)
+
+            while not self.zmachine.quit:
+                self.zmachine.run_instruction()
+            self.flush_buffer(self.active_window)
+            self.active_window.addstr("\n[Press any key to exit.]")
+            self.active_window.getch()
 
         def set_active_window(self, window):
             self.active_window = window
 
         def print_handler(self, text, newline = False):
-            self.buffer.write(str(text))
-            if newline:
-                self.buffer.write("\n")
+            if self.buffered_output:
+                self.buffer.write(str(text))
+                if newline:
+                    self.buffer.write("\n")
+            else:
+                self.active_window.addstr(text)
+                if newline:
+                    self.buffer.addstr("\n")
 
         def input_handler(self, lowercase = True):
             self.refresh_status_line()
-            self.flush_buffer()
+            self.flush_buffer(self.active_window)
             curses.echo()
             result = self.active_window.getstr().decode(encoding="utf-8")
             if lowercase:
@@ -40,50 +57,30 @@ class screen():
             curses.noecho()
             return result
 
-    class screen_v3_builder(screen_builder):
-        def build(self, stdscr):
-            super().build(stdscr)
-            self.zmachine.set_show_status_handler(self.refresh_status_line)
-            height, width = stdscr.getmaxyx()
-            self.height = height
-            self.width = width
-            self.status_line = curses.newwin(1, width, 0, 0)
-            self.status_line.attrset(curses.A_REVERSE)
-            self.game_window = curses.newwin(height - 1, width, 1, 0)
-            self.game_window.move(height - 2, 0)
-            self.game_window.scrollok(True)
-            self.set_active_window(self.game_window)
-
-            while not self.zmachine.quit:
-                self.zmachine.run_instruction()
-            self.flush_buffer()
-            self.game_window.addstr("\n[Press any key to exit.]")
-            self.game_window.getch()
-
-        def flush_buffer(self):
+        def flush_buffer(self, window):
             text = self.buffer.getvalue()
             self.buffer = io.StringIO()
-            height, width = self.game_window.getmaxyx()
-            output_lines = self.wrap_lines(text)
+            height, width = window.getmaxyx()
+            output_lines = self.wrap_lines(text, window)
             line_count = 0
             for line in output_lines:
-                self.game_window.addstr(line)
+                window.addstr(line)
                 if len(line) > 0 and line[-1] == "\n":
                     line_count += 1
                 if line_count == height - 2:
-                    self.game_window.addstr('[MORE]')
-                    self.game_window.refresh()
-                    self.game_window.getch()
-                    self.game_window.addstr(height - 1, 0, ' ' * 6)
-                    self.game_window.move(height - 1, 0)
+                    window.addstr('[MORE]')
+                    window.refresh()
+                    window.getch()
+                    window.addstr(height - 1, 0, ' ' * 6)
+                    window.move(height - 1, 0)
                     line_count = 0
-            self.game_window.refresh()
+            window.refresh()
 
-        def wrap_lines(self, text):
+        def wrap_lines(self, text, window):
             result = []
             textpos = 0
             while textpos < len(text):
-                y, x = self.game_window.getyx()
+                y, x = window.getyx()
                 line = text[textpos:]
                 line_break = text.find("\n", textpos)
                 if line_break >= 0:
@@ -121,6 +118,18 @@ class screen():
                     result += [output_line]
             return result
 
+    class screen_v3_builder(abstract_screen_builder):
+        def build(self, stdscr):
+            height, width = stdscr.getmaxyx()
+            self.zmachine.set_show_status_handler(self.refresh_status_line)
+            self.status_line = curses.newwin(1, width, 0, 0)
+            self.status_line.attrset(curses.A_REVERSE)
+            self.game_window = curses.newwin(height - 1, width, 1, 0)
+            self.game_window.move(height - 2, 0)
+            self.game_window.scrollok(True)
+            self.set_active_window(self.game_window)
+            super().build(stdscr)
+
         def refresh_status_line(self):
             location_id = self.zmachine.read_var(0x10)
             location = self.zmachine.get_object_text(location_id)
@@ -150,3 +159,57 @@ class screen():
                 hh = str(global1).rjust(2, ' ')
                 mm = global2
                 return f'Time: {hh}:{mm:02} {meridian}'.ljust(17, ' ')
+
+    class screen_v4_builder(abstract_screen_builder):
+        def build(self, stdscr):
+            height, width = stdscr.getmaxyx()
+            self.zmachine.write_byte(0x20, height)
+            self.zmachine.write_byte(0x21, width)
+            self.upper_window = curses.newwin(0, width)
+            self.lower_window = curses.newwin(height, width)
+            self.lower_window.move(height - 1, 0)
+            self.lower_window.scrollok(True)
+            self.set_active_window(self.lower_window)
+            self.zmachine.set_erase_window_handler(self.erase_window)
+            self.zmachine.set_split_window_handler(self.split_window)
+            self.zmachine.set_set_window_handler(self.set_window)
+            self.zmachine.set_set_buffer_mode_handler(self.set_buffer_mode)
+            self.zmachine.set_set_cursor_handler(self.set_cursor)
+            self.zmachine.set_set_text_style_handler(self.set_text_style)
+            super().build(stdscr)
+
+        def erase_window(self, num):
+            if num == -2:
+                self.upper_window.erase()
+                self.lower_window.erase()
+            elif num == -1:
+                self.upper_window.resize(1, self.width)
+                self.lower_window.resize(self.height, self.width)
+                self.lower_window.erase()
+            elif num == 0:
+                self.lower_window.erase()
+            elif num == 1:
+                self.upper_window.erase()
+
+        def split_window(self, lines):
+            self.upper_window.resize(lines, self.width)
+            self.lower_window.resize(self.height - lines, self.width)
+
+        def set_window(self, window):
+            self.set_active_window([self.lower_window, self.upper_window][window])
+
+        def set_cursor(self, y, x):
+            self.active_window.move(y - 1, x - 1)
+
+        def set_buffer_mode(self, mode):
+            self.buffered_output = mode != 0
+
+        def set_text_style(self, style):
+            if style == 0:
+                self.active_window.attrset(0)
+            if style & 0x1 == 0x1:
+                self.active_window.attrset(curses.A_REVERSE)
+            if style & 0x2 == 0x2:
+                self.active_window.attrset(curses.A_BOLD)
+            if style & 0x4 == 0x4:
+                self.active_window.attrset(curses.A_ITALIC)

@@ -22,8 +22,7 @@ class opcodes():
             cls(op_jg, 3),
             cls(op_dec_chk, 4),
             cls(op_inc_chk, 5),
-            cls(op_jin, 6, max_version = 3),
-            cls(op_jin_v4, 6, 4),
+            cls(op_jin, 6),
             cls(op_test, 7),
             cls(op_or, 8),
             cls(op_and, 9),
@@ -42,6 +41,7 @@ class opcodes():
             cls(op_mul, 22),
             cls(op_div, 23),
             cls(op_mod, 24),
+            cls(op_call_2s, 25, 4),
             cls(op_jz, 128),
             cls(op_get_sibling, 129),
             cls(op_get_child, 130),
@@ -81,7 +81,12 @@ class opcodes():
             cls(op_random, 231),
             cls(op_push, 232),
             cls(op_pull, 233),
-            cls(op_erase_window, 237, 4)
+            cls(op_split_window, 234, 4),
+            cls(op_set_window, 235, 4),
+            cls(op_erase_window, 237, 4),
+            cls(op_set_cursor, 239, 4),
+            cls(op_set_text_tyle, 241, 4),
+            cls(op_buffer_mode, 242, 4)
         ]
 
 def op_je(zm, *operands):
@@ -112,15 +117,9 @@ def op_inc_chk(zm, *operands):
 
 def op_jin(zm, *operands):
     obj_id, parent_id = operands
-    obj_a_ptr = zm.lookup_object(obj_id)
-    obj_a_parent = zm.read_byte(obj_a_ptr + 4)
-    zm.do_branch(obj_a_parent == parent_id)
-
-def op_jin_v4(zm, *operands):
-    obj_id, parent_id = operands
-    obj_a_ptr = zm.lookup_object(obj_id)
-    obj_a_parent = zm.read_word(obj_a_ptr + 6)
-    zm.do_branch(obj_a_parent == parent_id)
+    obj_ptr = zm.lookup_object(obj_id)
+    obj_parent_id = zm.get_object_parent_id(obj_ptr)
+    zm.do_branch(obj_parent_id == parent_id)
 
 def op_test(zm, *operands):
     bitmap, flags = operands
@@ -238,6 +237,13 @@ def op_div(zm, *operands):
 def op_mod(zm, *operands):
     a, b = operands
     zm.do_store(a % b)
+
+def op_call_2s(zm, *operands):
+    if len(operands) == 0 or operands[0] == 0:
+        zm.do_store(0)
+        return
+    call_addr = zm.unpack_addr(operands[0])
+    zm.do_routine(call_addr, operands[1:])
 
 def op_jz(zm, *operands):
     zm.do_branch(operands[0] == 0)
@@ -432,7 +438,22 @@ def op_pull(zm, *operands):
     value = zm.stack_pop()
     zm.write_var(operands[0], value)
 
+def op_split_window(zm, *operands):
+    zm.split_window_handler(operands[0])
+
+def op_set_window(zm, *operands):
+    zm.set_window_handler(operands[0])
+
 @signed_operands
 def op_erase_window(zm, *operands):
-    zm.do_print(operands, True)
-    zm.quit = True
+    zm.erase_window_handler(operands[0])
+
+def op_set_cursor(zm, *operands):
+    y, x = operands
+    zm.set_cursor_handler(y, x)
+
+def op_set_text_tyle(zm, *operands):
+    zm.set_text_style_handler(operands[0])
+
+def op_buffer_mode(zm, *operands):
+    zm.set_buffer_mode_handler(operands[0])
