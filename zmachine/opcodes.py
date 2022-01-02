@@ -31,11 +31,11 @@ class opcodes():
             cls(op_set_attr, 11),
             cls(op_clear_attr, 12),
             cls(op_store, 13),
-            #cls(op_insert_obj, 14),
+            cls(op_insert_obj, 14),
             cls(op_loadw, 15),
             cls(op_loadb, 16),
-            #cls(op_get_prop, 17),
-            #cls(op_get_prop_addr, 18),
+            cls(op_get_prop, 17),
+            cls(op_get_prop_addr, 18),
             cls(op_get_next_prop, 19),
             cls(op_add, 20),
             cls(op_sub, 21),
@@ -43,16 +43,16 @@ class opcodes():
             cls(op_div, 23),
             cls(op_mod, 24),
             cls(op_jz, 128),
-            #cls(op_get_sibling, 129),
-            #cls(op_get_child, 130),
-            #cls(op_get_parent, 131),
-            #cls(op_get_prop_len, 132),
+            cls(op_get_sibling, 129),
+            cls(op_get_child, 130),
+            cls(op_get_parent, 131),
+            cls(op_get_prop_len, 132),
             cls(op_inc, 133),
             cls(op_dec, 134),
             cls(op_print_addr, 135),
             cls(op_call_1s, 136, 4),
-            #cls(op_remove_obj, 137),
-            #cls(op_print_obj, 138),
+            cls(op_remove_obj, 137),
+            cls(op_print_obj, 138),
             cls(op_ret, 139),
             cls(op_jump, 140),
             cls(op_print_paddr, 141),
@@ -80,7 +80,8 @@ class opcodes():
             cls(op_print_num, 230),
             cls(op_random, 231),
             cls(op_push, 232),
-            cls(op_pull, 233)
+            cls(op_pull, 233),
+            cls(op_erase_window, 237, 4)
         ]
 
 def op_je(zm, *operands):
@@ -191,39 +192,26 @@ def op_get_prop(zm, *operands):
     if prop_ptr == None:
         result = zm.read_word(zm.object_header + ((prop_id - 1) * 2))
     else:
-        size_byte = zm.read_byte(prop_ptr)
-        size = (size_byte >> 5) + 1
+        _, size, data_ptr = zm.get_property_data(prop_ptr)
         if size == 1:
-            result = zm.read_byte(prop_ptr + 1)
+            result = zm.read_byte(data_ptr)
         elif size == 2:
-            result = zm.read_word(prop_ptr + 1)
+            result = zm.read_word(data_ptr)
         else:
             raise Exception("Invalid size for property")
     zm.do_store(result)
 
 def op_get_prop_addr(zm, *operands):
     obj_id, prop_id = operands
+    result = 0
     prop_ptr = zm.lookup_property(obj_id, prop_id)
-    zm.do_store(0 if prop_ptr == None else prop_ptr + 1)
+    if prop_ptr != None:
+        result = zm.get_property_data(prop_ptr)[2]
+    zm.do_store(result)
 
 def op_get_next_prop(zm, *operands):
     obj_id, prop_id = operands
-    result = 0
-    if prop_id == 0:
-        # Get the first property
-        obj_ptr = zm.lookup_object(obj_id)
-        prop_ptr = zm.byte_addr(obj_ptr + 7)
-        text_len = zm.read_byte(prop_ptr)
-        prop_ptr += 2 * text_len + 1
-        result = zm.read_byte(prop_ptr) & 0x1f
-    else:
-        prop_ptr = zm.lookup_property(obj_id, prop_id)
-        if prop_ptr == None:
-            raise Exception("Invalid property lookup")
-        size = (zm.read_byte(prop_ptr) >> 5) + 1
-        next_prop_info = zm.read_byte(prop_ptr + size + 1)
-        if next_prop_info != 0:
-            result = next_prop_info & 0x1f
+    result = zm.get_next_property_id(obj_id, prop_id)
     zm.do_store(result)
 
 @signed_operands
@@ -256,27 +244,26 @@ def op_jz(zm, *operands):
 
 def op_get_sibling(zm, *operands):
     obj_ptr = zm.lookup_object(operands[0])
-    sibling_id = zm.read_byte(obj_ptr + 5)
+    sibling_id = zm.get_object_sibling_id(obj_ptr)
     zm.do_store(sibling_id)
     zm.do_branch(sibling_id)
 
 def op_get_child(zm, *operands):
     obj_ptr = zm.lookup_object(operands[0])
-    child_id = zm.read_byte(obj_ptr + 6)
+    child_id = zm.get_object_child_id(obj_ptr)
     zm.do_store(child_id)
     zm.do_branch(child_id)
 
 def op_get_parent(zm, *operands):
     obj_id = operands[0]
     obj_ptr = zm.lookup_object(obj_id)
-    zm.do_store(zm.read_byte(obj_ptr + 4))
+    zm.do_store(zm.get_object_parent_id(obj_ptr))
 
 def op_get_prop_len(zm, *operands):
     prop_ptr = operands[0]
     result = 0
     if prop_ptr != 0:
-        size_byte = zm.read_byte(prop_ptr - 1)
-        result = (size_byte >> 5) + 1
+        result = zm.get_property_data(prop_ptr - 1)[1]
     zm.do_store(result)
 
 def op_inc(zm, *operands):
@@ -305,10 +292,8 @@ def op_print_obj(zm, *operands):
     obj_id = operands[0]
     if obj_id == 0 or obj_id > 0xff:
         raise Exception('Invalid object: {0}'.format(obj_id))
-    obj_ptr = zm.lookup_object(obj_id)
-    prop_ptr = zm.byte_addr(obj_ptr + 7)
-    encoded = zm.read_encoded_zscii(prop_ptr + 1)
-    zm.do_print_encoded(encoded)
+    obj_text = zm.get_object_text(obj_id)
+    zm.do_print(obj_text)
 
 def op_ret(zm, *operands):
     zm.do_return(operands[0])
@@ -321,7 +306,7 @@ def op_jump(zm, *operands):
     zm.pc += operands[0] - 2
 
 def op_print_paddr(zm, *operands):
-    addr = zm.packed_addr(operands[0])
+    addr = zm.unpack_addr(operands[0])
     encoded = zm.read_encoded_zscii(addr)
     zm.do_print_encoded(encoded)
 
@@ -404,13 +389,13 @@ def op_put_prop(zm, *operands):
     prop_ptr = zm.lookup_property(obj_id, prop_id)
     if prop_ptr == None:
         raise Exception("Property does not exist")
-    prop_size = (zm.read_byte(prop_ptr) >> 5) + 1
+    _, prop_size, data_ptr = zm.get_property_data(prop_ptr)
     if prop_size > 2:
         raise Exception("Invalid call to put_prop")
     if prop_size == 1:
-        zm.write_byte(prop_ptr + 1, value & 0xff)
+        zm.write_byte(data_ptr, value & 0xff)
     if prop_size == 2:
-        zm.write_word(prop_ptr + 1, value)
+        zm.write_word(data_ptr, value)
 
 def op_read(zm, *operands):
     zm.do_read(*operands)
@@ -446,3 +431,8 @@ def op_push(zm, *operands):
 def op_pull(zm, *operands):
     value = zm.stack_pop()
     zm.write_var(operands[0], value)
+
+@signed_operands
+def op_erase_window(zm, *operands):
+    zm.do_print(operands, True)
+    zm.quit = True

@@ -289,7 +289,6 @@ class zmachine():
                     break
                 operands += [operand]
         try:
-            print('{0:x} {1}'.format(instruction_ptr, opcode_number))
             op = self.opcodes[opcode_number]
             op(self, *operands)
         except KeyError:
@@ -420,48 +419,100 @@ class zmachine():
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
 
+    def get_object_parent_id(self, obj_ptr):
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 4)
+        else:
+            return self.read_word(obj_ptr + 6)
+
+    def set_object_parent_id(self, obj_ptr, val):
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 4, val)
+        else:
+            self.write_word(obj_ptr + 6, val)
+
+    def get_object_sibling_id(self, obj_ptr):
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 5)
+        else:
+            return self.read_word(obj_ptr + 8)
+
+    def set_object_sibling_id(self, obj_ptr, val):
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 5, val)
+        else:
+            self.write_word(obj_ptr + 8, val)
+
+    def get_object_child_id(self, obj_ptr):
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 6)
+        else:
+            return self.read_word(obj_ptr + 10)
+
+    def set_object_child_id(self, obj_ptr, val):
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 6, val)
+        else:
+            self.write_word(obj_ptr + 10, val)
+
     def orphan_object(self, obj_id):
-        parent_offset, sibling_offset, child_offset = 4, 5, 6
         obj_ptr = self.lookup_object(obj_id)
-        parent_id = self.read_byte(obj_ptr + parent_offset)
+        parent_id = self.get_object_parent_id(obj_ptr)
         if parent_id == 0:
             return
         parent_ptr = self.lookup_object(parent_id)
-        obj_next_sibling_id = self.read_byte(obj_ptr + sibling_offset)
-        child_id = self.read_byte(parent_ptr + child_offset)
+        obj_next_sibling_id = self.get_object_sibling_id(obj_ptr)
+        child_id = self.get_object_child_id(parent_ptr)
         if child_id == obj_id:
-            self.write_byte(parent_ptr + child_offset, obj_next_sibling_id)
+            self.set_object_child_id(parent_ptr, obj_next_sibling_id)
         else:
             while child_id != obj_id:
                 child_ptr = self.lookup_object(child_id)
-                child_id = self.read_byte(child_ptr + sibling_offset)
-            self.write_byte(child_ptr + sibling_offset, obj_next_sibling_id)
-        self.write_byte(obj_ptr + parent_offset, 0)
-        self.write_byte(obj_ptr + sibling_offset, 0)
+                child_id = self.get_object_sibling_id(child_ptr)
+            self.set_object_sibling_id(child_ptr, obj_next_sibling_id)
+        self.set_object_parent_id(obj_ptr, 0)
+        self.set_object_sibling_id(obj_ptr, 0)
+
+    def get_property_data(self, prop_ptr):
+        size_byte = self.read_byte(prop_ptr)
+        if size_byte == 0:
+            return 0, 0, None
+        if self.version <= 3:
+            return size_byte & 0x1f, (size_byte >> 5) + 1, prop_ptr + 1
+        else:
+            num = size_byte & 0x3f
+            if size_byte & 0x80 == 0x80:
+                data_bytes = self.read_byte(prop_ptr + 1) & 0x3f
+                if data_bytes == 0:
+                    data_bytes = 0x40
+                return num, data_bytes, prop_ptr + 2
+            else:
+                return num, 1 if size_byte & 0x40 == 0 else 2, prop_ptr + 1
+
+    def get_next_property_id(self, obj_id, prop_id):
+        prop_ptr = None
+        if prop_id == 0:
+            # Get the first property
+            obj_ptr = self.lookup_object(obj_id)
+            prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
+            text_len = self.read_byte(prop_ptr)
+            prop_ptr += 2 * text_len + 1
+        else:
+            prop_ptr = zm.lookup_property(obj_id, prop_id)
+            if prop_ptr == None:
+                raise Exception("Invalid property lookup")
+            _, size, data_ptr = self.get_property_data(prop_ptr)
+            prop_ptr += data_ptr + size
+        return self.get_property_data(prop_ptr)[0]
 
     def lookup_property(self, obj_id, prop_id):
-        def read_property(ptr):
-            size_byte = self.read_byte(ptr)
-            if size_byte == 0:
-                return 0, 0
-            if self.version <= 3:
-                return size_byte & 0x1f, (size_byte >> 5) + 1
-            else:
-                num = size_byte & 0x3f
-                if size_byte & 0x80 == 0x80:
-                    data_bytes = self.read_byte(ptr + 1) & 0x3f
-                    if data_bytes == 0:
-                        data_bytes = 0x40
-                    return num, data_bytes + 1
-                else:
-                    return num, 1 if size_byte & 0x40 == 0 else 2
         obj_ptr = self.lookup_object(obj_id)
         prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
         text_len = self.read_byte(prop_ptr)
         prop_ptr += 2 * text_len + 1
         num = 0xff
         while True:
-            num, size = read_property(prop_ptr)
+            num, size, _ = self.get_property_data(prop_ptr)
             if num <= prop_id:
                 break
             prop_ptr += size + 1
@@ -529,28 +580,11 @@ class zmachine():
     def set_show_status_handler(self, handler):
         self.show_status_handler = handler
 
-    def get_location(self):
-        obj_id = self.read_var(0x10)
+    def get_object_text(self, obj_id):
         obj_ptr = self.lookup_object(obj_id)
-        prop_ptr = self.byte_addr(obj_ptr + 7)
+        prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
         encoded = self.read_encoded_zscii(prop_ptr + 1)
         return zscii_decode(self, encoded)
-
-    def get_right_status(self):
-        global1 = self.read_var(0x11)
-        global2 = self.read_var(0x12)
-        if self.flags1 & 0x2 == 0:
-            score = sign_uint16(global1)
-            return f'Score: {score}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
-        else:
-            meridian = 'AM' if global1 < 12 else 'PM'
-            if global1 == 0:
-                global1 = 12
-            elif global1 > 12:
-                global1 -= 12
-            hh = str(global1).rjust(2, ' ')
-            mm = global2
-            return f'Time: {hh}:{mm:02} {meridian}'.ljust(17, ' ')
 
     def do_read(self, text_buffer, parse_buffer):
         command = self.input_handler()
