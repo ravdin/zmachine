@@ -86,7 +86,8 @@ class opcodes():
             cls(op_erase_window, 237, 4),
             cls(op_set_cursor, 239, 4),
             cls(op_set_text_tyle, 241, 4),
-            cls(op_buffer_mode, 242, 4)
+            cls(op_buffer_mode, 242, 4),
+            cls(op_read_char, 246, 4)
         ]
 
 def op_je(zm, *operands):
@@ -296,7 +297,7 @@ def op_call_1s(zm, *operands):
 
 def op_print_obj(zm, *operands):
     obj_id = operands[0]
-    if obj_id == 0 or obj_id > 0xff:
+    if obj_id == 0 or obj_id > zm.MAX_OBJECTS:
         raise Exception('Invalid object: {0}'.format(obj_id))
     obj_text = zm.get_object_text(obj_id)
     zm.do_print(obj_text)
@@ -457,3 +458,7 @@ def op_set_text_tyle(zm, *operands):
 
 def op_buffer_mode(zm, *operands):
     zm.set_buffer_mode_handler(operands[0])
+
+def op_read_char(zm, *operands):
+    char = zm.read_char_handler()
+    zm.do_store(char)

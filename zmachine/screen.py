@@ -19,7 +19,6 @@ class screen():
         def __init__(self, zmachine):
             self.zmachine = zmachine
             self.buffer = io.StringIO()
-            self.buffered_output = True
 
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
@@ -38,17 +37,11 @@ class screen():
             self.active_window = window
 
         def print_handler(self, text, newline = False):
-            if self.buffered_output:
-                self.buffer.write(str(text))
-                if newline:
-                    self.buffer.write("\n")
-            else:
-                self.active_window.addstr(text)
-                if newline:
-                    self.buffer.addstr("\n")
+            self.buffer.write(str(text))
+            if newline:
+                self.buffer.write("\n")
 
         def input_handler(self, lowercase = True):
-            self.refresh_status_line()
             self.flush_buffer(self.active_window)
             curses.echo()
             result = self.active_window.getstr().decode(encoding="utf-8")
@@ -130,6 +123,10 @@ class screen():
             self.set_active_window(self.game_window)
             super().build(stdscr)
 
+        def input_handler(self, lowercase = True):
+            self.refresh_status_line()
+            super().input_handler(lowercase)
+
         def refresh_status_line(self):
             location_id = self.zmachine.read_var(0x10)
             location = self.zmachine.get_object_text(location_id)
@@ -163,37 +160,53 @@ class screen():
     class screen_v4_builder(abstract_screen_builder):
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
+            self.height = height
+            self.width = width
             self.zmachine.write_byte(0x20, height)
             self.zmachine.write_byte(0x21, width)
-            self.upper_window = curses.newwin(0, width)
-            self.lower_window = curses.newwin(height, width)
-            self.lower_window.move(height - 1, 0)
-            self.lower_window.scrollok(True)
-            self.set_active_window(self.lower_window)
+            main_window = curses.newwin(height, width, 0, 0)
+            self.main_window = main_window
+            self.split_window(0)
+            self.buffered_output = True
             self.zmachine.set_erase_window_handler(self.erase_window)
             self.zmachine.set_split_window_handler(self.split_window)
             self.zmachine.set_set_window_handler(self.set_window)
             self.zmachine.set_set_buffer_mode_handler(self.set_buffer_mode)
             self.zmachine.set_set_cursor_handler(self.set_cursor)
             self.zmachine.set_set_text_style_handler(self.set_text_style)
+            self.zmachine.set_read_char_handler(self.read_char)
             super().build(stdscr)
+
+        def print_handler(self, text, newline = False):
+            if self.active_window == self.lower_window and self.buffered_output:
+                super().print_handler(text, newline)
+            else:
+                self.active_window.addstr(text)
+                if newline:
+                    self.active_window.addstr("\n")
+
+        def read_char(self):
+            self.flush_buffer(self.active_window)
+            return self.active_window.getch()
 
         def erase_window(self, num):
             if num == -2:
                 self.upper_window.erase()
                 self.lower_window.erase()
             elif num == -1:
-                self.upper_window.resize(1, self.width)
-                self.lower_window.resize(self.height, self.width)
-                self.lower_window.erase()
+                self.split_window(0)
             elif num == 0:
                 self.lower_window.erase()
             elif num == 1:
                 self.upper_window.erase()
 
         def split_window(self, lines):
-            self.upper_window.resize(lines, self.width)
-            self.lower_window.resize(self.height - lines, self.width)
+            self.upper_window = self.main_window.derwin(lines, self.width, 0, 0)
+            self.lower_window = self.main_window.derwin(self.height - lines, self.width, lines, 0)
+            self.lower_window.move(self.height - lines - 1, 0)
+            self.lower_window.scrollok(True)
+            self.upper_window.scrollok(True)
+            self.set_active_window(self.lower_window)
 
         def set_window(self, window):
             self.set_active_window([self.lower_window, self.upper_window][window])

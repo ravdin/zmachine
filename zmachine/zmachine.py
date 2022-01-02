@@ -27,6 +27,7 @@ class zmachine():
         self.set_buffer_mode_handler = self.default_set_buffer_mode_handler
         self.set_cursor_handler = self.default_set_cursor_handler
         self.set_text_style_handler = self.default_set_text_style_handler
+        self.read_char_handler = self.default_read_char_handler
         self.do_initialize()
 
     def do_run(self):
@@ -44,6 +45,7 @@ class zmachine():
             return
         self.PROPERTY_DEFAULTS_LENGTH = 0x1f if self.version <= 3 else 0x3f
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
+        self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
         self.opcodes = opcodes.get_opcodes(self.version)
         self.flags1 = self.read_byte(0x1)
         self.release_number = self.memory_map[0x2:0x4]
@@ -602,6 +604,9 @@ class zmachine():
     def default_set_text_style_handler(self, style):
         pass
 
+    def default_read_char_handler(self):
+        pass
+
     def set_print_handler(self, handler):
         self.print_handler = handler
 
@@ -628,6 +633,9 @@ class zmachine():
 
     def set_set_text_style_handler(self, handler):
         self.set_text_style_handler = handler
+
+    def set_read_char_handler(self, handler):
+        self.read_char_handler = handler
 
     def get_object_text(self, obj_id):
         obj_ptr = self.lookup_object(obj_id)
