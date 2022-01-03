@@ -181,9 +181,12 @@ class screen():
             if self.active_window == self.lower_window and self.buffered_output:
                 super().print_handler(text, newline)
             else:
-                self.active_window.addstr(text)
-                if newline:
-                    self.active_window.addstr("\n")
+                try:
+                    self.active_window.addstr(text)
+                    if newline:
+                        self.active_window.addstr("\n")
+                except:
+                    pass
 
         def read_char(self):
             self.flush_buffer(self.active_window)
@@ -195,6 +198,8 @@ class screen():
                 self.lower_window.erase()
             elif num == -1:
                 self.split_window(0)
+                self.upper_window.erase()
+                self.lower_window.erase()
             elif num == 0:
                 self.lower_window.erase()
             elif num == 1:
@@ -205,11 +210,14 @@ class screen():
             self.lower_window = self.main_window.derwin(self.height - lines, self.width, lines, 0)
             self.lower_window.move(self.height - lines - 1, 0)
             self.lower_window.scrollok(True)
-            self.upper_window.scrollok(True)
             self.set_active_window(self.lower_window)
 
         def set_window(self, window):
-            self.set_active_window([self.lower_window, self.upper_window][window])
+            if window == 0:
+                self.set_active_window(self.lower_window)
+            elif window == 1:
+                self.set_active_window(self.upper_window)
+                self.set_cursor(1, 1)
 
         def set_cursor(self, y, x):
             self.active_window.move(y - 1, x - 1)

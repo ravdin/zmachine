@@ -89,7 +89,8 @@ class opcodes():
             cls(op_set_text_tyle, 241, 4),
             cls(op_buffer_mode, 242, 4),
             cls(op_output_stream, 243, 3),
-            cls(op_read_char, 246, 4)
+            cls(op_read_char, 246, 4),
+            cls(op_scan_table, 247, 4)
         ]
 
 def op_je(zm, *operands):
@@ -412,7 +413,10 @@ def op_print_char(zm, *operands):
     if zscii_code == 0:
         return
     elif zscii_code < 32 or zscii_code > 126:
-        raise Exception("Invalid ZSCII code '{0}'".format(zscii_code))
+        if zscii_code == 10:
+            zscii_code = 13
+        if zscii_code != 13:
+            raise ZSCIIException("Invalid ZSCII code '{0}'".format(zscii_code))
     else:
         zm.do_print(chr(zscii_code))
 
@@ -460,11 +464,32 @@ def op_buffer_mode(zm, *operands):
     zm.set_buffer_mode_handler(operands[0])
 
 def op_output_stream(zm, *operands):
-    if operands[0] == 0:
+    stream = sign_uint16(operands[0])
+    if stream == 0:
         pass
+    elif stream == 1:
+        zm.output_streams |= 0x1
+    elif stream == -1:
+        zm.output_streams &= 0xe
+    elif stream == 3:
+        zm.output_streams |= 0x4
+        zm.memory_stream.open(operands[1])
+    elif stream == -3:
+        zm.output_streams &= 0xb
+        zm.memory_stream.close()
     else:
         raise Exception(f"Op not supported: {operands[0]}")
 
 def op_read_char(zm, *operands):
     char = zm.read_char_handler()
     zm.do_store(char)
+
+def op_scan_table(zm, *operands):
+    word, addr, length = operands
+    result = 0
+    for i in range(length):
+        if zm.read_word(addr + 2 * i) == word:
+            result = addr + 2 * i
+            break
+    zm.do_store(result)
+    zm.do_branch(result)

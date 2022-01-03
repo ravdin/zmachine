@@ -18,6 +18,8 @@ class zmachine():
         self.quit = False
         self.debug = debug
         self.save_file = ''
+        self.output_streams = 0x1
+        self.memory_stream = zmachine.memory_stream(self)
         self.print_handler = self.default_print_handler
         self.input_handler = self.default_input_handler
         self.show_status_handler = self.default_show_status_handler
@@ -525,11 +527,11 @@ class zmachine():
             text_len = self.read_byte(prop_ptr)
             prop_ptr += 2 * text_len + 1
         else:
-            prop_ptr = zm.lookup_property(obj_id, prop_id)
+            prop_ptr = self.lookup_property(obj_id, prop_id)
             if prop_ptr == None:
                 raise Exception("Invalid property lookup")
             _, size, data_ptr = self.get_property_data(prop_ptr)
-            prop_ptr += data_ptr + size
+            prop_ptr = data_ptr + size
         return self.get_property_data(prop_ptr)[0]
 
     def lookup_property(self, obj_id, prop_id):
@@ -539,10 +541,10 @@ class zmachine():
         prop_ptr += 2 * text_len + 1
         num = 0xff
         while True:
-            num, size, _ = self.get_property_data(prop_ptr)
+            num, size, data_ptr = self.get_property_data(prop_ptr)
             if num <= prop_id:
                 break
-            prop_ptr += size + 1
+            prop_ptr = data_ptr + size
         return prop_ptr if num == prop_id else None
 
     def do_routine(self, call_addr, args = []):
@@ -679,7 +681,12 @@ class zmachine():
             parse_ptr += 4
 
     def do_print(self, text, newline = False):
-        self.print_handler(text, newline)
+        if self.output_streams & 0x1 == 0x1:
+            self.print_handler(text, newline)
+        if self.output_streams & 0x4 == 0x4:
+            self.memory_stream.write(text)
+            if newline:
+                self.memory_stream.write("\n")
 
     def do_print_encoded(self, encoded, newline = False):
         text = zscii_decode(self, encoded)
@@ -709,3 +716,29 @@ class zmachine():
             stream.write(self.data)
             if len(self.data) & 1 == 1:
                 stream.write(b'\x00')
+
+    class memory_stream():
+        def __init__(self, zmachine):
+            self.buffer = [0] * 1024
+            self.is_open = False
+            self.zmachine = zmachine
+
+        def open(self, addr):
+            self.is_open = True
+            self.ptr = 0
+            self.addr = addr
+
+        def write(self, str):
+            if not self.is_open:
+                raise Exception("Writing to closed stream")
+            def zscii(c):
+                return 13 if ord(c) == 10 else ord(c)
+            length = len(str)
+            self.buffer[self.ptr:self.ptr + length] = bytearray([zscii(c) for c in str])
+            self.ptr += length
+
+        def close(self):
+            self.zmachine.write_word(self.addr, self.ptr)
+            for i in range(self.ptr):
+                self.zmachine.write_byte(self.addr + i + 2, self.buffer[i])
+            self.is_open = False
