@@ -41,7 +41,7 @@ class opcodes():
             cls(op_mul, 22),
             cls(op_div, 23),
             cls(op_mod, 24),
-            cls(op_call_2s, 25, 4),
+            cls(op_call, 25, 4),
             cls(op_jz, 128),
             cls(op_get_sibling, 129),
             cls(op_get_child, 130),
@@ -50,7 +50,7 @@ class opcodes():
             cls(op_inc, 133),
             cls(op_dec, 134),
             cls(op_print_addr, 135),
-            cls(op_call_1s, 136, 4),
+            cls(op_call, 136, 4),
             cls(op_remove_obj, 137),
             cls(op_print_obj, 138),
             cls(op_ret, 139),
@@ -83,10 +83,12 @@ class opcodes():
             cls(op_pull, 233),
             cls(op_split_window, 234, 4),
             cls(op_set_window, 235, 4),
+            cls(op_call, 236, 4),
             cls(op_erase_window, 237, 4),
             cls(op_set_cursor, 239, 4),
             cls(op_set_text_tyle, 241, 4),
             cls(op_buffer_mode, 242, 4),
+            cls(op_output_stream, 243, 3),
             cls(op_read_char, 246, 4)
         ]
 
@@ -170,10 +172,10 @@ def op_insert_obj(zm, *operands):
     zm.orphan_object(obj_id)
     obj_ptr = zm.lookup_object(obj_id)
     parent_ptr = zm.lookup_object(parent_id)
-    first_child_id = zm.read_byte(parent_ptr + 6)
-    zm.write_byte(obj_ptr + 4, parent_id)
-    zm.write_byte(obj_ptr + 5, first_child_id)
-    zm.write_byte(parent_ptr + 6, obj_id)
+    first_child_id = zm.get_object_child_id(parent_ptr)
+    zm.set_object_parent_id(obj_ptr, parent_id)
+    zm.set_object_sibling_id(obj_ptr, first_child_id)
+    zm.set_object_child_id(parent_ptr, obj_id)
 
 def op_loadw(zm, *operands):
     ptr, word_index = operands
@@ -244,7 +246,7 @@ def op_call_2s(zm, *operands):
         zm.do_store(0)
         return
     call_addr = zm.unpack_addr(operands[0])
-    zm.do_routine(call_addr, operands[1:])
+    zm.do_routine(call_addr, operands[1:2])
 
 def op_jz(zm, *operands):
     zm.do_branch(operands[0] == 0)
@@ -297,8 +299,6 @@ def op_call_1s(zm, *operands):
 
 def op_print_obj(zm, *operands):
     obj_id = operands[0]
-    if obj_id == 0 or obj_id > zm.MAX_OBJECTS:
-        raise Exception('Invalid object: {0}'.format(obj_id))
     obj_text = zm.get_object_text(obj_id)
     zm.do_print(obj_text)
 
@@ -458,6 +458,12 @@ def op_set_text_tyle(zm, *operands):
 
 def op_buffer_mode(zm, *operands):
     zm.set_buffer_mode_handler(operands[0])
+
+def op_output_stream(zm, *operands):
+    if operands[0] == 0:
+        pass
+    else:
+        raise Exception(f"Op not supported: {operands[0]}")
 
 def op_read_char(zm, *operands):
     char = zm.read_char_handler()

@@ -28,6 +28,12 @@ class zmachine():
         self.set_cursor_handler = self.default_set_cursor_handler
         self.set_text_style_handler = self.default_set_text_style_handler
         self.read_char_handler = self.default_read_char_handler
+        if debug:
+            debug_file = 'debug.txt'
+            filepath = os.path.dirname(self.file)
+            self.debug_file = os.path.join(filepath, debug_file)
+            with open(self.debug_file, 'w') as s:
+                s.write('')
         self.do_initialize()
 
     def do_run(self):
@@ -292,17 +298,23 @@ class zmachine():
         else:
             # variable form
             b = self.read_from_pc()
-            # TODO: double variable (4.4.3.1)
             if opcode < 0xe0:
                 # 2OP form, opcode number is bottom 5 bits.
                 opcode_number = opcode & 0x1f
             optypes = [b >> i & 0x3 for i in range(6, -1, -2)]
+            if opcode in (0xec, 0xfa):
+                # call_vn2 and call_vs2 have extra operands.
+                b = self.read_from_pc()
+                optypes += [b >> i & 0x3 for i in range(6, -1, -2)]
             operands = []
             for optype in optypes:
                 operand, exists = self.read_operand(optype)
                 if not exists:
                     break
                 operands += [operand]
+        if self.debug:
+            with open(self.debug_file, 'a') as s:
+                s.write('{0:x}: {1}\n'.format(instruction_ptr, opcode_number))
         try:
             op = self.opcodes[opcode_number]
             op(self, *operands)
@@ -428,8 +440,8 @@ class zmachine():
             self.write_word(addr, val)
 
     def lookup_object(self, obj_id):
-        if obj_id == 0:
-            return None
+        if obj_id == 0 or obj_id > self.MAX_OBJECTS:
+            raise InvalidMemoryException("Object ID out of range")
         return self.object_header + \
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
@@ -544,6 +556,8 @@ class zmachine():
         self.frame_ptr = self.sp
         self.pc = call_addr
         self.num_locals = self.read_from_pc()
+        if self.num_locals > 15:
+            raise InvalidMemoryException('Invalid call to address {0:x}'.format(call_addr))
         for i in range(self.num_locals):
             local = self.read_from_pc(2)
             if len(args) > i:

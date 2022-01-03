@@ -125,7 +125,7 @@ class screen():
 
         def input_handler(self, lowercase = True):
             self.refresh_status_line()
-            super().input_handler(lowercase)
+            return super().input_handler(lowercase)
 
         def refresh_status_line(self):
             location_id = self.zmachine.read_var(0x10)
