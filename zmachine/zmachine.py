@@ -442,6 +442,7 @@ class zmachine():
             return self.read_word(addr)
 
     def write_var(self, varnum, val):
+        val &= 0xffff
         if varnum == 0:
             self.stack_push(val)
         elif varnum >= 0x1 and varnum <= 0xf:
