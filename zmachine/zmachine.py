@@ -386,10 +386,6 @@ class zmachine():
     def word_addr(self, ptr):
         return self.read_word(ptr) << 1
 
-    def packed_addr(self, ptr):
-        packed_addr = self.read_word(ptr)
-        return self.unpack_addr(packed_addr)
-
     def unpack_addr(self, packed_addr):
         shift = 1 if self.version <= 3 else 2
         return packed_addr << shift

@@ -227,8 +227,7 @@ def op_get_next_prop(zm, *operands):
     result = zm.get_next_property_id(obj_id, prop_id)
     zm.do_store(result)
 
-# Unlike the other mathematical operations,
-# add uses unsigned operands.
+@signed_operands
 def op_add(zm, *operands):
     a, b = operands
     zm.do_store(a + b)
