@@ -10,7 +10,7 @@ class screen():
             return
         builders = {
             3: screen.screen_v3_builder,
-            4: screen.screen_v4_builder
+            4: screen.screen_v4_builder,
         }
         builder = builders[self.zmachine.version](zmachine)
         curses.wrapper(builder.build)
@@ -175,7 +175,15 @@ class screen():
             self.zmachine.set_set_cursor_handler(self.set_cursor)
             self.zmachine.set_set_text_style_handler(self.set_text_style)
             self.zmachine.set_read_char_handler(self.read_char)
+
+            flag1 = self.zmachine.read_byte(1)
+            flag1 |= 0x84
+            self.zmachine.write_byte(1, flag1)
             super().build(stdscr)
+
+        def input_handler(self, lowercase = True):
+            self.upper_window.refresh()
+            return super().input_handler(lowercase)
 
         def print_handler(self, text, newline = False):
             if self.active_window == self.lower_window and self.buffered_output:
@@ -217,7 +225,6 @@ class screen():
                 self.set_active_window(self.lower_window)
             elif window == 1:
                 self.set_active_window(self.upper_window)
-                self.set_cursor(1, 1)
 
         def set_cursor(self, y, x):
             self.active_window.move(y - 1, x - 1)
@@ -226,11 +233,13 @@ class screen():
             self.buffered_output = mode != 0
 
         def set_text_style(self, style):
-            if style == 0:
-                self.active_window.attrset(0)
-            if style & 0x1 == 0x1:
-                self.active_window.attrset(curses.A_REVERSE)
-            if style & 0x2 == 0x2:
-                self.active_window.attrset(curses.A_BOLD)
-            if style & 0x4 == 0x4:
-                self.active_window.attrset(curses.A_ITALIC)
+            styles = {
+                0x1: curses.A_REVERSE,
+                0x2: curses.A_BOLD,
+                #0x4: curses.A_ITALIC
+            }
+            for k, v in styles.items():
+                if style & k == k:
+                    self.active_window.attron(v)
+                else:
+                    self.active_window.attroff(v)

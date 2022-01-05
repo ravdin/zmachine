@@ -51,9 +51,10 @@ class zmachine():
                 self.do_print("Unrecognized z-machine file", True)
             self.quit = True
             return
-        self.PROPERTY_DEFAULTS_LENGTH = 0x1f if self.version <= 3 else 0x3f
+        self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
         self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
+        self.ATTRIBUTE_FLAGS = 32 if self.version <= 3 else 48
         self.opcodes = opcodes.get_opcodes(self.version)
         self.flags1 = self.read_byte(0x1)
         self.release_number = self.memory_map[0x2:0x4]
@@ -65,7 +66,7 @@ class zmachine():
         self.static_mem_ptr = self.byte_addr(0xe)
         self.serial_number = self.memory_map[0x12:0x18]
         self.abbreviation_table = self.byte_addr(0x18)
-        self.filelen = self.read_word(0x1a) * 2 #TODO: depends on the version
+        self.filelen = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
         self.checksum = self.read_word(0x1c)
         self.sp = 0
         self.frame_ptr = 0
@@ -315,8 +316,9 @@ class zmachine():
                     break
                 operands += [operand]
         if self.debug:
+            opname = self.opcodes[opcode_number].__name__[3:].upper()
             with open(self.debug_file, 'a') as s:
-                s.write('{0:x}: {1}\n'.format(instruction_ptr, opcode_number))
+                s.write('{0:x}: {1}  {2}\n'.format(instruction_ptr, opname, ','.join([str(o) for o in operands])))
         try:
             op = self.opcodes[opcode_number]
             op(self, *operands)
@@ -350,20 +352,29 @@ class zmachine():
             self.pc += 1
         return result
 
+    def read_encoded_zscii_from_pc(self):
+        result = []
+        word = 0
+        while word & 0x8000 != 0x8000:
+            word = self.read_word(self.pc)
+            result += [word]
+            self.pc += 2
+        return result
+
     def write_byte(self, addr, val):
         if addr >= self.static_mem_ptr:
-            raise IllegalWriteException()
+            raise IllegalWriteException(f"{addr:x}")
         self.memory_map[addr] = val & 0xff
 
     def write_word(self, addr, val):
-        if addr >= self.static_mem_ptr:
-            raise IllegalWriteException()
+        if addr + 1 >= self.static_mem_ptr:
+            raise IllegalWriteException(f"{addr:x}")
         self.memory_map[addr] = val >> 8 & 0xff
         self.memory_map[addr+1] = val & 0xff
 
     def write_dword(self, addr, val):
-        if addr >= self.static_mem_ptr:
-            raise IllegalWriteException()
+        if addr + 3 >= self.static_mem_ptr:
+            raise IllegalWriteException(f"{addr:x}")
         self.memory_map[addr] = val >> 24 & 0xff
         self.memory_map[addr+1] = val >> 16 & 0xff
         self.memory_map[addr+2] = val >> 8 & 0xff
@@ -443,7 +454,7 @@ class zmachine():
 
     def lookup_object(self, obj_id):
         if obj_id == 0 or obj_id > self.MAX_OBJECTS:
-            raise InvalidMemoryException("Object ID out of range")
+            raise InvalidMemoryException(f"Object ID '{obj_id}' out of range")
         return self.object_header + \
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
@@ -505,7 +516,7 @@ class zmachine():
     def get_property_data(self, prop_ptr):
         size_byte = self.read_byte(prop_ptr)
         if size_byte == 0:
-            return 0, 0, None
+            return 0, None, None
         if self.version <= 3:
             return size_byte & 0x1f, (size_byte >> 5) + 1, prop_ptr + 1
         else:
@@ -662,6 +673,8 @@ class zmachine():
     def do_read(self, text_buffer, parse_buffer):
         command = self.input_handler()
         max_text_len = self.read_byte(text_buffer) + 1
+        if max_text_len < 3:
+            raise Exception("Parse error")
         text_ptr = text_buffer + 1
         for c in command[:max_text_len]:
             self.write_byte(text_ptr, ord(c))
@@ -670,6 +683,8 @@ class zmachine():
         separators = self.separator_chars()
         tokens, positions = tokenize(command, separators)
         max_words = self.read_byte(parse_buffer)
+        if max_words < 6:
+            raise Exception("Parse error")
         parse_ptr = parse_buffer + 1
         self.write_byte(parse_ptr, len(tokens))
         parse_ptr += 1
@@ -681,12 +696,13 @@ class zmachine():
             parse_ptr += 4
 
     def do_print(self, text, newline = False):
-        if self.output_streams & 0x1 == 0x1:
-            self.print_handler(text, newline)
         if self.output_streams & 0x4 == 0x4:
             self.memory_stream.write(text)
             if newline:
                 self.memory_stream.write("\n")
+            return
+        if self.output_streams & 0x1 == 0x1:
+            self.print_handler(text, newline)
 
     def do_print_encoded(self, encoded, newline = False):
         text = zscii_decode(self, encoded)
@@ -733,9 +749,9 @@ class zmachine():
                 raise Exception("Writing to closed stream")
             def zscii(c):
                 return 13 if ord(c) == 10 else ord(c)
-            length = len(str)
-            self.buffer[self.ptr:self.ptr + length] = bytearray([zscii(c) for c in str])
-            self.ptr += length
+            for c in str:
+                self.buffer[self.ptr] = zscii(c)
+                self.ptr += 1
 
         def close(self):
             self.zmachine.write_word(self.addr, self.ptr)

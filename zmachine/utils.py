@@ -1,6 +1,8 @@
+from functools import wraps
 from error import ZSCIIException
 
 def signed_operands(op):
+    @wraps(op)
     def sign_and_execute(*args):
         zm, operands = args[0], [sign_uint16(o) for o in args[1:]]
         return op(zm, *operands)

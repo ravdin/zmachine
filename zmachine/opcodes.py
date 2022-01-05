@@ -1,6 +1,7 @@
 import random
 import time
 from utils import *
+from error import *
 
 def get_opcodes(version):
     predicate = lambda x: version >= x.min_version and version <= x.max_version
@@ -41,7 +42,7 @@ class opcodes():
             cls(op_mul, 22),
             cls(op_div, 23),
             cls(op_mod, 24),
-            cls(op_call, 25, 4),
+            cls(op_call_2s, 25, 4),
             cls(op_jz, 128),
             cls(op_get_sibling, 129),
             cls(op_get_child, 130),
@@ -50,7 +51,7 @@ class opcodes():
             cls(op_inc, 133),
             cls(op_dec, 134),
             cls(op_print_addr, 135),
-            cls(op_call, 136, 4),
+            cls(op_call_1s, 136, 4),
             cls(op_remove_obj, 137),
             cls(op_print_obj, 138),
             cls(op_ret, 139),
@@ -86,9 +87,10 @@ class opcodes():
             cls(op_call, 236, 4),
             cls(op_erase_window, 237, 4),
             cls(op_set_cursor, 239, 4),
-            cls(op_set_text_tyle, 241, 4),
+            cls(op_set_text_style, 241, 4),
             cls(op_buffer_mode, 242, 4),
             cls(op_output_stream, 243, 3),
+            cls(op_nop, 245, 4),
             cls(op_read_char, 246, 4),
             cls(op_scan_table, 247, 4)
         ]
@@ -139,7 +141,9 @@ def op_and(zm, *operands):
 
 def op_test_attr(zm, *operands):
     obj_id, attr_num = operands
-    byte_offset = attr_num // 8
+    if attr_num >= zm.ATTRIBUTE_FLAGS:
+        raise InvalidArgumentException(f"{attr_num}")
+    byte_offset = attr_num >> 3
     bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
     attributes = zm.read_byte(obj_ptr + byte_offset)
@@ -148,7 +152,9 @@ def op_test_attr(zm, *operands):
 
 def op_set_attr(zm, *operands):
     obj_id, attr_num = operands
-    byte_offset = attr_num // 8
+    if attr_num >= zm.ATTRIBUTE_FLAGS:
+        raise InvalidArgumentException(f"{attr_num}")
+    byte_offset = attr_num >> 3
     bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
     attr_flags = zm.read_byte(obj_ptr + byte_offset)
@@ -157,7 +163,9 @@ def op_set_attr(zm, *operands):
 
 def op_clear_attr(zm, *operands):
     obj_id, attr_num = operands
-    byte_offset = attr_num // 8
+    if attr_num >= zm.ATTRIBUTE_FLAGS:
+        raise InvalidArgumentException(f"{attr_num}")
+    byte_offset = attr_num >> 3
     bit_offset = attr_num & 0x7
     obj_ptr = zm.lookup_object(obj_id)
     attr_flags = zm.read_byte(obj_ptr + byte_offset)
@@ -193,6 +201,8 @@ def op_get_prop(zm, *operands):
     prop_ptr = zm.lookup_property(obj_id, prop_id)
     result = 0
     if prop_ptr == None:
+        if prop_id < 0 or prop_id > zm.PROPERTY_DEFAULTS_LENGTH:
+            raise InvalidArgumentException(f"property id: {prop_id}")
         result = zm.read_word(zm.object_header + ((prop_id - 1) * 2))
     else:
         _, size, data_ptr = zm.get_property_data(prop_ptr)
@@ -217,7 +227,8 @@ def op_get_next_prop(zm, *operands):
     result = zm.get_next_property_id(obj_id, prop_id)
     zm.do_store(result)
 
-@signed_operands
+# Unlike the other mathematical operations,
+# add uses unsigned operands.
 def op_add(zm, *operands):
     a, b = operands
     zm.do_store(a + b)
@@ -267,13 +278,22 @@ def op_get_child(zm, *operands):
 def op_get_parent(zm, *operands):
     obj_id = operands[0]
     obj_ptr = zm.lookup_object(obj_id)
-    zm.do_store(zm.get_object_parent_id(obj_ptr))
+    parent_id = zm.get_object_parent_id(obj_ptr)
+    zm.do_store(parent_id)
 
 def op_get_prop_len(zm, *operands):
-    prop_ptr = operands[0]
+    data_ptr = operands[0]
     result = 0
-    if prop_ptr != 0:
-        result = zm.get_property_data(prop_ptr - 1)[1]
+    if data_ptr != 0:
+        size_byte = zm.read_byte(data_ptr - 1)
+        if zm.version <= 3:
+            result = (size_byte >> 5) + 1
+        elif size_byte & 0x80 == 0x80:
+            result = size_byte & 0x3f
+            if result == 0:
+                result = 64
+        else:
+            result = (size_byte >> 6) + 1
     zm.do_store(result)
 
 def op_inc(zm, *operands):
@@ -330,13 +350,11 @@ def op_rfalse(zm, *operands):
     zm.do_return(False)
 
 def op_print(zm, *operands):
-    encoded = zm.read_encoded_zscii(zm.pc)
-    zm.pc += len(encoded) * 2
+    encoded = zm.read_encoded_zscii_from_pc()
     zm.do_print_encoded(encoded)
 
 def op_print_ret(zm, *operands):
-    encoded = zm.read_encoded_zscii(zm.pc)
-    zm.pc += len(encoded) * 2
+    encoded = zm.read_encoded_zscii_from_pc()
     zm.do_print_encoded(encoded, True)
     zm.do_return(True)
 
@@ -401,7 +419,7 @@ def op_put_prop(zm, *operands):
     if prop_size > 2:
         raise Exception("Invalid call to put_prop")
     if prop_size == 1:
-        zm.write_byte(data_ptr, value & 0xff)
+        zm.write_byte(data_ptr, value)
     if prop_size == 2:
         zm.write_word(data_ptr, value)
 
@@ -457,7 +475,7 @@ def op_set_cursor(zm, *operands):
     y, x = operands
     zm.set_cursor_handler(y, x)
 
-def op_set_text_tyle(zm, *operands):
+def op_set_text_style(zm, *operands):
     zm.set_text_style_handler(operands[0])
 
 def op_buffer_mode(zm, *operands):
@@ -472,6 +490,8 @@ def op_output_stream(zm, *operands):
     elif stream == -1:
         zm.output_streams &= 0xe
     elif stream == 3:
+        if zm.output_streams & 0x4 == 0x4:
+            raise #TODO: This should open another stream.
         zm.output_streams |= 0x4
         zm.memory_stream.open(operands[1])
     elif stream == -3:
@@ -488,8 +508,9 @@ def op_scan_table(zm, *operands):
     word, addr, length = operands
     result = 0
     for i in range(length):
-        if zm.read_word(addr + 2 * i) == word:
-            result = addr + 2 * i
+        if zm.read_word(addr) == word:
+            result = addr
             break
+        addr += 2
     zm.do_store(result)
     zm.do_branch(result)

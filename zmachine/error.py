@@ -4,9 +4,13 @@ class ZSCIIException(Exception):
         super().__init__(message)
 
 class IllegalWriteException(Exception):
-    def __init__(self):
-        super().__init__("Illegal write to static memory")
+    def __init__(self, message):
+        super().__init__(f"Illegal write to static memory: {message}")
 
 class InvalidMemoryException(Exception):
     def __init__(self, message):
         super().__init__(f"Invalid read operation: {message}")
+
+class InvalidArgumentException(Exception):
+    def __init__(self, message):
+        super().__init__(f"Invalid argument passed to op: {message}")
