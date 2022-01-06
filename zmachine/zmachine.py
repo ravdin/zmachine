@@ -5,6 +5,7 @@ from utils import *
 from error import *
 
 SUPPORTED_VERSIONS = (3, 4)
+STACK_LENGTH = 1024
 
 class zmachine():
     def __init__(self, file, debug = False):
@@ -12,9 +13,9 @@ class zmachine():
             memory_map = s.read()
         self.file = file
         self.memory_map = bytearray(memory_map)
-        self.stack = [0] * 1024
-        self.num_locals = 0
-        self.local_vars = [0] * 15
+        self.stack_frame = zmachine.stack_frame()
+        self.stack = self.stack_frame.eval_stack
+        self.local_vars = self.stack_frame.local_vars
         self.quit = False
         self.debug = debug
         self.save_file = ''
@@ -118,14 +119,8 @@ class zmachine():
         header_chunk = zmachine.iff_chunk('IFhd', header_data)
         dynamic_memory = self.compress_dynamic_memory()
         mem_chunk = zmachine.iff_chunk('CMem', dynamic_memory)
-        # Non standard way to save the stack state.
-        stack_data = self.frame_ptr.to_bytes(2, "big")
-        stack_data += self.num_locals.to_bytes(1, "big")
-        for i in range(self.num_locals):
-            stack_data += self.local_vars[i].to_bytes(2, "big")
-        for stack_item in self.stack[:self.sp]:
-            stack_data += stack_item.to_bytes(2, "big")
-        stack_chunk = zmachine.iff_chunk('Stck', stack_data)
+        stack_data = self.stack_frame.write()
+        stack_chunk = zmachine.iff_chunk('Stks', stack_data)
         try:
             with open(save_full_path, 'wb') as s:
                 header_chunk.write(s)
@@ -134,6 +129,7 @@ class zmachine():
             self.save_file = save_file
             return True
         except Exception:
+            raise
             return False
 
     def do_restore(self):
@@ -145,23 +141,22 @@ class zmachine():
         transcript_bit = self.flags2 & 0x1
         fixed_pitch_bit = self.flags2 & 0x2
 
-        header_chunk = None
-        mem_chunk = None
-        stack_chunk = None
+        chunks = {}
         with open(save_full_path, 'rb') as s:
-            header_chunk = zmachine.iff_chunk.read(s)
-            mem_chunk = zmachine.iff_chunk.read(s)
-            stack_chunk = zmachine.iff_chunk.read(s)
+            while True:
+                chunk = zmachine.iff_chunk.read(s)
+                if len(chunk.header) == 0:
+                    break
+                chunks[chunk.header] = chunk
         try:
+            header_chunk = chunks['IFhd']
+            mem_chunk = chunks['CMem']
+            stack_chunk = chunks['Stks']
             release_number = header_chunk.data[0:2]
             serial_number = header_chunk.data[2:8]
             checksum = int.from_bytes(header_chunk.data[8:10], "big")
             pc = int.from_bytes(header_chunk.data[10:13], "big")
             encoded_memory = mem_chunk.data
-            frame_ptr = int.from_bytes(stack_chunk.data[0:2], "big")
-            num_locals = int.from_bytes(stack_chunk.data[2:3], "big")
-            local_vars = stack_chunk.data[3:3+2*num_locals]
-            stack_data = stack_chunk.data[3+2*num_locals:]
         except Exception as err:
             #print(f'{err}')
             return False
@@ -172,16 +167,8 @@ class zmachine():
             return False
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
         self.memory_map[:self.static_mem_ptr] = dynamic_mem
+        self.stack_frame.read(stack_chunk.data)
         self.pc = pc
-        self.frame_ptr = frame_ptr
-        self.num_locals = num_locals
-        for i in range(0, num_locals, 2):
-            self.local_vars[i // 2] = int.from_bytes(local_vars[i:i+2], "big")
-        sp = 0
-        for w in range(0, len(stack_data), 2):
-            self.stack[sp] = int.from_bytes(stack_data[w:w+2], "big")
-            sp += 1
-        self.sp = sp
 
         flags2_ptr = 0x10
         flags2 = self.read_byte(flags2_ptr) & 0xfc
@@ -413,23 +400,23 @@ class zmachine():
         return result
 
     def stack_push(self, val):
-        if self.sp >= len(self.stack):
+        if self.stack_frame.sp >= len(self.stack):
             raise Exception('Stack overflow')
-        self.stack[self.sp] = val
-        self.sp += 1
+        self.stack[self.stack_frame.sp] = val
+        self.stack_frame.sp += 1
 
     def stack_pop(self):
-        if self.sp <= 0:
+        if self.stack_frame.sp <= 0:
             raise Exception('Stack underflow')
-        self.sp -= 1
-        return self.stack[self.sp]
+        self.stack_frame.sp -= 1
+        return self.stack[self.stack_frame.sp]
 
     def read_var(self, varnum):
         if varnum == 0:
             return self.stack_pop()
         elif varnum >= 0x1 and varnum <= 0xf:
             # Local vars
-            if varnum > self.num_locals:
+            if varnum > self.stack_frame.num_locals:
                 raise Exception('Invalid index for local variable')
             return self.local_vars[varnum - 1]
         else:
@@ -442,7 +429,7 @@ class zmachine():
         if varnum == 0:
             self.stack_push(val)
         elif varnum >= 0x1 and varnum <= 0xf:
-            if varnum > self.num_locals:
+            if varnum > self.stack_frame.num_locals:
                 raise Exception('Invalid index for local variable')
             self.local_vars[varnum - 1] = val
         else:
@@ -555,34 +542,36 @@ class zmachine():
             prop_ptr = data_ptr + size
         return prop_ptr if num == prop_id else None
 
-    def do_routine(self, call_addr, args = []):
-        store = self.read_from_pc()
-        self.stack_push(self.pc)
-        self.stack_push(store)
-        for i in range(self.num_locals):
-            self.stack_push(self.local_vars[self.num_locals - i - 1])
-        self.stack_push(self.num_locals)
-        self.stack_push(self.frame_ptr)
-        self.frame_ptr = self.sp
+    def do_routine(self, call_addr, args = [], discard_result = False):
+        store_varnum = 0
+        if not discard_result:
+            store_varnum = self.read_from_pc()
+        return_pc = self.pc
         self.pc = call_addr
-        self.num_locals = self.read_from_pc()
-        if self.num_locals > 15:
+        num_locals = self.read_from_pc()
+        if num_locals > 15:
             raise InvalidMemoryException('Invalid call to address {0:x}'.format(call_addr))
-        for i in range(self.num_locals):
+        local_vars = [0] * num_locals
+        for i in range(num_locals):
             local = self.read_from_pc(2)
             if len(args) > i:
                 local = args[i]
-            self.local_vars[i] = local
+            local_vars[i] = local
+        self.stack_frame.push(
+            return_pc = return_pc,
+            local_vars = local_vars,
+            discard_result = discard_result,
+            store_varnum = store_varnum
+        )
 
     def do_return(self, retval):
-        self.sp = self.frame_ptr
-        self.frame_ptr = self.stack_pop()
-        self.num_locals = self.stack_pop()
-        for i in range(self.num_locals):
-            self.local_vars[i] = self.stack_pop()
-        store = self.stack_pop()
-        self.pc = self.stack_pop()
-        self.write_var(store, retval)
+        store_varnum = self.stack_frame.store_varnum
+        return_pc = self.stack_frame.return_pc
+        discard_result = self.stack_frame.discard_result
+        self.stack_frame.pop()
+        self.pc = return_pc
+        if not discard_result:
+            self.write_var(store_varnum, retval)
 
     def do_store(self, retval):
         store = self.read_from_pc()
@@ -704,6 +693,116 @@ class zmachine():
     def do_print_encoded(self, encoded, newline = False):
         text = zscii_decode(self, encoded)
         self.do_print(text, newline)
+
+    class stack_frame():
+        def __init__(self, from_frame = None):
+            self.return_pc = 0
+            self.discard_result = False
+            self.store_varnum = 0
+            self.args = 0
+            self.eval_stack = [0] * STACK_LENGTH
+            self.local_vars = [0] * 15
+            self.previous_frame = None
+            self.sp = 0
+            self.num_locals = 0
+
+        def push(self, **kwargs):
+            previous_frame = object.__new__(zmachine.stack_frame)
+            previous_frame.return_pc = self.return_pc
+            previous_frame.discard_result = self.discard_result
+            previous_frame.store_varnum = self.store_varnum
+            previous_frame.args = self.args
+            previous_frame.eval_stack = self.eval_stack[:self.sp]
+            previous_frame.local_vars = self.local_vars[:self.num_locals]
+            previous_frame.previous_frame = self.previous_frame
+            num_locals = 0
+            for attr, val in kwargs.items():
+                if attr == 'local_vars':
+                    num_locals = len(val)
+                    self.local_vars[:num_locals] = val
+                else:
+                    setattr(self, attr, val)
+            self.sp = 0
+            self.num_locals = num_locals
+            self.previous_frame = previous_frame
+
+        def pop(self):
+            if self.previous_frame == None:
+                raise Exception("Stack underflow")
+            previous_frame = self.previous_frame
+            self.return_pc = previous_frame.return_pc
+            self.discard_result = previous_frame.discard_result
+            self.store_varnum = previous_frame.store_varnum
+            self.args = previous_frame.args
+            self.num_locals = len(previous_frame.local_vars)
+            self.local_vars[:self.num_locals] = previous_frame.local_vars
+            self.sp = len(previous_frame.eval_stack)
+            self.eval_stack[:self.sp] = previous_frame.eval_stack
+            self.previous_frame = previous_frame.previous_frame
+            del previous_frame
+
+        def read(self, data):
+            while self.previous_frame != None:
+                self.pop()
+            ptr = 0
+            dummy_frame = True
+            while ptr < len(data):
+                if not dummy_frame:
+                    self.push()
+                dummy_frame = False
+
+                return_pc = int.from_bytes(data[ptr:ptr+3], "big")
+                flags = int.from_bytes(data[ptr+3:ptr+4], "big")
+                store_varnum = int.from_bytes(data[ptr+4:ptr+5], "big")
+                args = int.from_bytes(data[ptr+5:ptr+6], "big")
+                stack_len = int.from_bytes(data[ptr+6:ptr+8], "big")
+                ptr += 8
+                discard_result = flags & 0x10 == 0x10
+                num_locals = flags & 0xf
+                for i in range(num_locals):
+                    self.local_vars[i] = int.from_bytes(data[ptr:ptr+2], "big")
+                    ptr += 2
+                for i in range(stack_len):
+                    self.eval_stack[i] = int.from_bytes(data[ptr:ptr+2], "big")
+                    ptr += 2
+                self.return_pc = return_pc
+                self.discard_result = discard_result
+                self.store_varnum = store_varnum
+                self.args = args
+                self.num_locals = num_locals
+                self.sp = stack_len
+            return self
+
+        def write(self):
+            frames = []
+            current_frame = self
+            while current_frame != None:
+                num_locals = self.num_locals if current_frame == self else len(current_frame.local_vars)
+                stack_len = self.sp if current_frame == self else len(current_frame.eval_stack)
+                data = [0] * (8 + 2 * num_locals + 2 * stack_len)
+                ptr = 0
+                flags = num_locals
+                if current_frame.discard_result:
+                    flags |= 0x10
+                data[ptr:ptr+3] = current_frame.return_pc.to_bytes(3, "big")
+                data[ptr+3:ptr+4] = flags.to_bytes(1, "big")
+                data[ptr+4:ptr+5] = current_frame.store_varnum.to_bytes(1, "big")
+                data[ptr+5:ptr+6] = current_frame.args.to_bytes(1, "big")
+                data[ptr+6:ptr+8] = stack_len.to_bytes(2, "big")
+                ptr += 8
+                for i in range(num_locals):
+                    data[ptr:ptr+2] = current_frame.local_vars[i].to_bytes(2, "big")
+                    ptr += 2
+                for i in range(stack_len):
+                    data[ptr:ptr+2] = current_frame.eval_stack[i].to_bytes(2, "big")
+                    ptr += 2
+                frames += [data]
+                current_frame = current_frame.previous_frame
+            # Frames are written with the oldest frame first.
+            result = []
+            for frame in frames[::-1]:
+                result += frame
+            return bytearray(result)
 
     class iff_chunk():
         def __init__(self, header, data):

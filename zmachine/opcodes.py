@@ -362,14 +362,20 @@ def op_nop(zm, *operands):
 
 def op_save(zm, *operands):
     success = zm.do_save()
-    zm.do_branch(success)
+    if zm.version <= 3:
+        zm.do_branch(success)
+    else:
+        zm.do_store(1 if success else 0)
 
 def op_restore(zm, *operands):
     success = zm.do_restore()
-    # Technically, op_restore doesn't branch.
-    # On success, the branch occurs from the save op that produced the file.
-    # On failure, proceed with the next instruction.
-    zm.do_branch(success)
+    if zm.version <= 3:
+        # Technically, op_restore doesn't branch.
+        # On success, the branch occurs from the save op that produced the file.
+        # On failure, proceed with the next instruction.
+        zm.do_branch(success)
+    else:
+        zm.do_store(2 if success else 0)
 
 def op_restart(zm, *operands):
     zm.do_restart()
