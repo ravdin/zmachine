@@ -503,6 +503,8 @@ def op_sound_effect(zm, *operands):
 
 def op_read_char(zm, *operands):
     char = zm.read_char_handler()
+    if char == 10:
+        char = 13
     zm.do_store(char)
 
 def op_scan_table(zm, *operands):
