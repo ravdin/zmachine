@@ -542,7 +542,7 @@ class zmachine():
             prop_ptr = data_ptr + size
         return prop_ptr if num == prop_id else None
 
-    def do_routine(self, call_addr, args = [], discard_result = False):
+    def do_routine(self, call_addr, args, discard_result = False):
         store_varnum = 0
         if not discard_result:
             store_varnum = self.read_from_pc()
@@ -669,8 +669,6 @@ class zmachine():
         separators = self.separator_chars()
         tokens, positions = tokenize(command, separators)
         max_words = self.read_byte(parse_buffer)
-        if max_words < 6:
-            raise Exception("Parse error")
         parse_ptr = parse_buffer + 1
         self.write_byte(parse_ptr, len(tokens))
         parse_ptr += 1

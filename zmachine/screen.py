@@ -19,6 +19,7 @@ class screen():
         def __init__(self, zmachine):
             self.zmachine = zmachine
             self.buffer = io.StringIO()
+            self.output_line_count = 0
 
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
@@ -48,25 +49,27 @@ class screen():
             if lowercase:
                 result = result.lower()
             curses.noecho()
+            self.output_line_count = 0
             return result
 
         def flush_buffer(self, window):
             text = self.buffer.getvalue()
             self.buffer = io.StringIO()
             height, width = window.getmaxyx()
+            y, x = window.getyx()
             output_lines = self.wrap_lines(text, window)
-            line_count = 0
             for line in output_lines:
                 window.addstr(line)
-                if len(line) > 0 and line[-1] == "\n":
-                    line_count += 1
-                if line_count == height - 2:
+                if x == 0:
+                    self.output_line_count += 1
+                x = 0
+                if self.output_line_count >= height - 2:
                     window.addstr('[MORE]')
                     window.refresh()
                     window.getch()
                     window.addstr(height - 1, 0, ' ' * 6)
                     window.move(height - 1, 0)
-                    line_count = 0
+                    self.output_line_count = 0
             window.refresh()
 
         def wrap_lines(self, text, window):
@@ -160,13 +163,13 @@ class screen():
     class screen_v4_builder(abstract_screen_builder):
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
-            self.height = height
-            self.width = width
             self.zmachine.write_byte(0x20, height)
             self.zmachine.write_byte(0x21, width)
-            main_window = curses.newwin(height, width, 0, 0)
-            self.main_window = main_window
-            self.split_window(0)
+            self.upper_window = curses.newwin(0, width, 0, 0)
+            self.lower_window = curses.newwin(height, width, 0, 0)
+            self.lower_window.scrollok(True)
+            self.lower_window.move(height - 1, 0)
+            self.active_window = self.lower_window
             self.buffered_output = True
             self.zmachine.set_erase_window_handler(self.erase_window)
             self.zmachine.set_split_window_handler(self.split_window)
@@ -175,10 +178,6 @@ class screen():
             self.zmachine.set_set_cursor_handler(self.set_cursor)
             self.zmachine.set_set_text_style_handler(self.set_text_style)
             self.zmachine.set_read_char_handler(self.read_char)
-
-            #flag1 = self.zmachine.read_byte(1)
-            #flag1 |= 0x84
-            #self.zmachine.write_byte(1, flag1)
             super().build(stdscr)
 
         def input_handler(self, lowercase = True):
@@ -193,34 +192,40 @@ class screen():
                     self.active_window.addstr(text)
                     if newline:
                         self.active_window.addstr("\n")
-                except:
+                except curses.error:
                     pass
+                self.active_window.refresh()
 
         def read_char(self):
-            self.flush_buffer(self.active_window)
+            self.upper_window.refresh()
+            self.flush_buffer(self.lower_window)
             return self.active_window.getch()
 
         def erase_window(self, num):
+            self.flush_buffer(self.lower_window)
             if num == -2:
                 self.upper_window.erase()
                 self.lower_window.erase()
             elif num == -1:
-                self.split_window(0)
                 self.upper_window.erase()
                 self.lower_window.erase()
+                self.split_window(0)
             elif num == 0:
                 self.lower_window.erase()
             elif num == 1:
                 self.upper_window.erase()
 
         def split_window(self, lines):
-            self.upper_window = self.main_window.derwin(lines, self.width, 0, 0)
-            self.lower_window = self.main_window.derwin(self.height - lines, self.width, lines, 0)
+            try:
+                self.upper_window.resize(lines, self.width)
+            except curses.error:
+                pass
+            self.lower_window.resize(self.height - lines, self.width)
+            self.lower_window.mvwin(lines, 0)
             self.lower_window.move(self.height - lines - 1, 0)
-            self.lower_window.scrollok(True)
-            self.set_active_window(self.lower_window)
 
         def set_window(self, window):
+            self.active_window.refresh()
             if window == 0:
                 self.set_active_window(self.lower_window)
             elif window == 1:
@@ -234,6 +239,7 @@ class screen():
 
         def set_text_style(self, style):
             self.flush_buffer(self.lower_window)
+            self.active_window.refresh()
             styles = {
                 0x1: curses.A_REVERSE,
                 0x2: curses.A_BOLD,

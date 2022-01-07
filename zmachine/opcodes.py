@@ -90,7 +90,7 @@ class opcodes():
             cls(op_set_text_style, 241, 4),
             cls(op_buffer_mode, 242, 4),
             cls(op_output_stream, 243, 3),
-            cls(op_nop, 245, 4),
+            cls(op_sound_effect, 245, 4),
             cls(op_read_char, 246, 4),
             cls(op_scan_table, 247, 4)
         ]
@@ -253,11 +253,7 @@ def op_mod(zm, *operands):
     zm.do_store(a % b)
 
 def op_call_2s(zm, *operands):
-    if len(operands) == 0 or operands[0] == 0:
-        zm.do_store(0)
-        return
-    call_addr = zm.unpack_addr(operands[0])
-    zm.do_routine(call_addr, operands[1:2])
+    op_call(zm, *operands)
 
 def op_jz(zm, *operands):
     zm.do_branch(operands[0] == 0)
@@ -311,11 +307,7 @@ def op_print_addr(zm, *operands):
     zm.do_print_encoded(encoded)
 
 def op_call_1s(zm, *operands):
-    if len(operands) == 0 or operands[0] == 0:
-        zm.do_store(0)
-        return
-    call_addr = zm.unpack_addr(operands[0])
-    zm.do_routine(call_addr)
+    op_call(zm, *operands)
 
 def op_print_obj(zm, *operands):
     obj_id = operands[0]
@@ -445,7 +437,7 @@ def op_print_char(zm, *operands):
 
 @signed_operands
 def op_print_num(zm, *operands):
-    zm.do_print(operands[0])
+    zm.do_print(str(operands[0]))
 
 @signed_operands
 def op_random(zm, *operands):
@@ -504,6 +496,10 @@ def op_output_stream(zm, *operands):
         zm.memory_stream.close()
     else:
         raise Exception(f"Op not supported: {operands[0]}")
+
+# TODO: Treating this as a nop.
+def op_sound_effect(zm, *operands):
+    pass
 
 def op_read_char(zm, *operands):
     char = zm.read_char_handler()
