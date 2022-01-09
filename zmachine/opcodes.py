@@ -90,7 +90,7 @@ class opcodes():
             cls(op_set_text_style, 241, 4),
             cls(op_buffer_mode, 242, 4),
             cls(op_output_stream, 243, 3),
-            cls(op_sound_effect, 245, 4),
+            cls(op_sound_effect, 245),
             cls(op_read_char, 246, 4),
             cls(op_scan_table, 247, 4)
         ]

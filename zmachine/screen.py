@@ -27,6 +27,8 @@ class screen():
             self.width = width
             self.zmachine.set_print_handler(self.print_handler)
             self.zmachine.set_input_handler(self.input_handler)
+            self.zmachine.set_set_flags_handler(self.set_flags_handler)
+            self.set_flags_handler()
 
             while not self.zmachine.quit:
                 self.zmachine.run_instruction()
@@ -37,8 +39,11 @@ class screen():
         def set_active_window(self, window):
             self.active_window = window
 
+        def set_flags_handler(self):
+            pass
+
         def print_handler(self, text, newline = False):
-            self.buffer.write(str(text))
+            self.buffer.write(text)
             if newline:
                 self.buffer.write("\n")
 
@@ -75,8 +80,8 @@ class screen():
         def wrap_lines(self, text, window):
             result = []
             textpos = 0
+            y, x = window.getyx()
             while textpos < len(text):
-                y, x = window.getyx()
                 line = text[textpos:]
                 line_break = text.find("\n", textpos)
                 if line_break >= 0:
@@ -86,6 +91,7 @@ class screen():
                     textpos = len(text)
                 if len(line) < self.width - x:
                     result += [line]
+                    x = 0
                 else:
                     output_line = ''
                     linepos = 0
@@ -163,8 +169,6 @@ class screen():
     class screen_v4_builder(abstract_screen_builder):
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
-            self.zmachine.write_byte(0x20, height)
-            self.zmachine.write_byte(0x21, width)
             self.upper_window = curses.newwin(0, width, 0, 0)
             self.lower_window = curses.newwin(height, width, 0, 0)
             self.lower_window.scrollok(True)
@@ -179,6 +183,14 @@ class screen():
             self.zmachine.set_set_text_style_handler(self.set_text_style)
             self.zmachine.set_read_char_handler(self.read_char)
             super().build(stdscr)
+
+        def set_flags_handler(self):
+            self.zmachine.write_byte(0x20, self.height)
+            self.zmachine.write_byte(0x21, self.width)
+            flags1 = self.zmachine.read_byte(0x1)
+            # Boldface and emphasis available.
+            flags1 |= 0xc
+            self.zmachine.write_byte(0x1, flags1)
 
         def input_handler(self, lowercase = True):
             self.upper_window.refresh()
@@ -206,9 +218,11 @@ class screen():
             if num == -2:
                 self.upper_window.erase()
                 self.lower_window.erase()
+                self.output_line_count = 0
             elif num == -1:
                 self.upper_window.erase()
                 self.lower_window.erase()
+                self.output_line_count = 0
                 self.split_window(0)
             elif num == 0:
                 self.lower_window.erase()
@@ -228,8 +242,10 @@ class screen():
             self.active_window.refresh()
             if window == 0:
                 self.set_active_window(self.lower_window)
+                self.lower_window.leaveok(False)
             elif window == 1:
                 self.set_active_window(self.upper_window)
+                self.lower_window.leaveok(True)
 
         def set_cursor(self, y, x):
             self.active_window.move(y - 1, x - 1)

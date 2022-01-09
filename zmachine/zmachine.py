@@ -6,6 +6,8 @@ from error import *
 
 SUPPORTED_VERSIONS = (3, 4)
 STACK_LENGTH = 1024
+IFF_HEADER = bytearray('FORM'.encode('UTF-8'))
+IFZS_ID = bytearray('IFZS'.encode('UTF-8'))
 
 class zmachine():
     def __init__(self, file, debug = False):
@@ -23,8 +25,9 @@ class zmachine():
         self.memory_stream = zmachine.memory_stream(self)
         self.print_handler = self.default_print_handler
         self.input_handler = self.default_input_handler
+        self.set_flags_handler = self.default_set_flags_handler
         self.show_status_handler = self.default_show_status_handler
-        self.erase_window_handler = self.default_erase_window_hander
+        self.erase_window_handler = self.default_erase_window_handler
         self.split_window_handler = self.default_split_window_handler
         self.set_window_handler = self.default_set_window_handler
         self.set_buffer_mode_handler = self.default_set_buffer_mode_handler
@@ -69,8 +72,6 @@ class zmachine():
         self.abbreviation_table = self.byte_addr(0x18)
         self.filelen = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
         self.checksum = self.read_word(0x1c)
-        self.sp = 0
-        self.frame_ptr = 0
         if self.save_file == '':
             filename = os.path.basename(self.file)
             self.save_file = '{0}.sav'.format(os.path.splitext(filename)[0])
@@ -94,14 +95,17 @@ class zmachine():
         self.show_status_handler()
 
     def do_restart(self):
-        transcript_bit = self.flags2 & 0x1
-        fixed_pitch_bit = self.flags2 & 0x2
+        flags2_bits = self.read_byte(0x10) & 0x3
         with open(self.file, "rb") as s:
             dynamic_mem = s.read(self.static_mem_ptr)
             self.memory_map[:self.static_mem_ptr] = dynamic_mem
         self.do_initialize()
-        flags2 = self.flags2 & 0xfc
-        flags2 |= fixed_pitch_bit | transcript_bit
+        self.stack_frame.clear()
+        self.set_flags_handler()
+        # Set the transcribe and fixed pitch bits to the previous state.
+        flags2 = self.read_byte(0x10)
+        flags2 &= 0xfc
+        flags2 |= flags2_bits
         self.write_byte(0x10, flags2)
 
     def do_save(self):
@@ -112,6 +116,7 @@ class zmachine():
             self.do_print('Overwrite existing file? (Y is affirmative) ')
             if self.input_handler() != 'y':
                 return False
+        data_len = 0
         header_data = self.release_number[:]
         header_data += self.serial_number
         header_data += self.checksum.to_bytes(2, "big")
@@ -121,8 +126,13 @@ class zmachine():
         mem_chunk = zmachine.iff_chunk('CMem', dynamic_memory)
         stack_data = self.stack_frame.write()
         stack_chunk = zmachine.iff_chunk('Stks', stack_data)
+        for chunk in (header_chunk, mem_chunk, stack_chunk):
+            data_len += 8 + len(chunk.data)
         try:
             with open(save_full_path, 'wb') as s:
+                s.write(IFF_HEADER)
+                s.write(data_len.to_bytes(4, "big"))
+                s.write(IFZS_ID)
                 header_chunk.write(s)
                 mem_chunk.write(s)
                 stack_chunk.write(s)
@@ -133,6 +143,7 @@ class zmachine():
             return False
 
     def do_restore(self):
+        flags2_bits = self.read_byte(0x10) & 0x3
         filepath = os.path.dirname(self.file)
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(filepath, save_file)
@@ -143,10 +154,19 @@ class zmachine():
 
         chunks = {}
         with open(save_full_path, 'rb') as s:
-            while True:
+            header = s.read(4)
+            data_len = int.from_bytes(s.read(4), "big")
+            form_type = s.read(4)
+            if header != IFF_HEADER or form_type != IFZS_ID:
+                self.do_print('Invalid save file!', True)
+                return False
+            bytes_read = 0
+            while bytes_read < data_len:
                 chunk = zmachine.iff_chunk.read(s)
-                if len(chunk.header) == 0:
-                    break
+                bytes_read += len(chunk.data) + 8
+                # Pad byte
+                if bytes_read & 1 == 1:
+                    bytes_read += 1
                 chunks[chunk.header] = chunk
         try:
             header_chunk = chunks['IFhd']
@@ -170,10 +190,11 @@ class zmachine():
         self.stack_frame.read(stack_chunk.data)
         self.pc = pc
 
-        flags2_ptr = 0x10
-        flags2 = self.read_byte(flags2_ptr) & 0xfc
-        flags2 |= fixed_pitch_bit | transcript_bit
-        self.write_byte(flags2_ptr, flags2)
+        # Set the transcribe and fixed pitch bits to the previous state.
+        flags2 = self.read_byte(0x10)
+        flags2 &= 0xfc
+        flags2 |= flags2_bits
+        self.write_byte(0x10, flags2)
         return True
 
     def prompt_save_file(self):
@@ -205,11 +226,10 @@ class zmachine():
             if val == 0:
                 zero_count += 1
             else:
-                if zero_count != 0:
-                    result[result_ptr] = 0
-                    result[result_ptr + 1:result_ptr + 3] = zero_count.to_bytes(2, "big")
-                    result_ptr += 3
-                    zero_count = 0
+                while zero_count > 0:
+                    result[result_ptr+1] = min(zero_count - 1, 0xff)
+                    zero_count = max(zero_count - 0x100, 0)
+                    result_ptr += 2
                 result[result_ptr] = val
                 result_ptr += 1
         return bytearray(result[:result_ptr])
@@ -223,12 +243,12 @@ class zmachine():
         while byte_ptr < len(encoded_memory):
             val = encoded_memory[byte_ptr]
             if val == 0:
-                mem_ptr += int.from_bytes(encoded_memory[byte_ptr + 1:byte_ptr + 3], "big")
-                byte_ptr += 3
+                mem_ptr += encoded_memory[byte_ptr + 1]
+                byte_ptr += 2
             else:
                 dynamic_mem[mem_ptr] ^= val
-                mem_ptr += 1
                 byte_ptr += 1
+            mem_ptr += 1
         return dynamic_mem
 
     def separator_chars(self):
@@ -238,7 +258,7 @@ class zmachine():
 
     def lookup_dictionary(self, text):
         # Of course, we could load the dictionary into a hashtable for fastest lookup.
-        # The dictionary is already loaded into memory though and a binary search is more fun!
+        # The dictionary is already loaded into memory though so we'll use it in a binary search.
         def read_entry(ptr):
             result = self.read_dword(ptr)
             if self.version >= 4:
@@ -444,40 +464,34 @@ class zmachine():
             self.OBJECT_BYTES * (obj_id - 1)
 
     def get_object_parent_id(self, obj_ptr):
-        if self.version <= 3:
-            return self.read_byte(obj_ptr + 4)
-        else:
-            return self.read_word(obj_ptr + 6)
+        return self.get_object_relative_id(obj_ptr, 0)
 
     def set_object_parent_id(self, obj_ptr, val):
-        if self.version <= 3:
-            self.write_byte(obj_ptr + 4, val)
-        else:
-            self.write_word(obj_ptr + 6, val)
+        self.set_object_relative_id(obj_ptr, 0, val)
 
     def get_object_sibling_id(self, obj_ptr):
-        if self.version <= 3:
-            return self.read_byte(obj_ptr + 5)
-        else:
-            return self.read_word(obj_ptr + 8)
+        return self.get_object_relative_id(obj_ptr, 1)
 
     def set_object_sibling_id(self, obj_ptr, val):
-        if self.version <= 3:
-            self.write_byte(obj_ptr + 5, val)
-        else:
-            self.write_word(obj_ptr + 8, val)
+        self.set_object_relative_id(obj_ptr, 1, val)
 
     def get_object_child_id(self, obj_ptr):
-        if self.version <= 3:
-            return self.read_byte(obj_ptr + 6)
-        else:
-            return self.read_word(obj_ptr + 10)
+        return self.get_object_relative_id(obj_ptr, 2)
 
     def set_object_child_id(self, obj_ptr, val):
-        if self.version <= 3:
-            self.write_byte(obj_ptr + 6, val)
-        else:
-            self.write_word(obj_ptr + 10, val)
+        self.set_object_relative_id(obj_ptr, 2, val)
+
+    def get_object_relative_id(self, obj_ptr, relative_offset):
+        attr_bytes = 4 if self.version <= 3 else 6
+        ref_bytes = 1 if self.version <= 3 else 2
+        read_func = self.read_byte if self.version <= 3 else self.read_word
+        return read_func(obj_ptr + attr_bytes + relative_offset * ref_bytes)
+
+    def set_object_relative_id(self, obj_ptr, relative_offset, val):
+        attr_bytes = 4 if self.version <= 3 else 6
+        ref_bytes = 1 if self.version <= 3 else 2
+        write_func = self.write_byte if self.version <= 3 else self.write_word
+        write_func(obj_ptr + attr_bytes + relative_offset * ref_bytes, val)
 
     def orphan_object(self, obj_id):
         obj_ptr = self.lookup_object(obj_id)
@@ -590,6 +604,11 @@ class zmachine():
             else:
                 self.pc += offset - 2
 
+
+
+    def default_set_flags_handler(self):
+        pass
+
     def default_print_handler(self, text, newline = False):
         print(text, end = '\n' if newline else '')
 
@@ -599,7 +618,7 @@ class zmachine():
     def default_show_status_handler(self):
         pass
 
-    def default_erase_window_hander(self, num):
+    def default_erase_window_handler(self, num):
         pass
 
     def default_split_window_handler(self, lines):
@@ -619,6 +638,9 @@ class zmachine():
 
     def default_read_char_handler(self):
         pass
+
+    def set_set_flags_handler(self, handler):
+        self.set_flags_handler = handler
 
     def set_print_handler(self, handler):
         self.print_handler = handler
@@ -739,9 +761,14 @@ class zmachine():
             self.previous_frame = previous_frame.previous_frame
             del previous_frame
 
-        def read(self, data):
+        def clear(self):
             while self.previous_frame != None:
                 self.pop()
+            self.sp = 0
+            self.num_locals = 0
+
+        def read(self, data):
+            self.clear()
             ptr = 0
             dummy_frame = True
             while ptr < len(data):
