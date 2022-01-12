@@ -117,6 +117,8 @@ class screen():
                             output_line = ''
                         else:
                             separator = ' '
+                    if len(output_line) > 0 and output_line[-1] == '\n':
+                        x = 0
                     result += [output_line]
             return result
 
