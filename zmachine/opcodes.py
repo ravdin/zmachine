@@ -58,6 +58,7 @@ class opcodes():
             cls(op_jump, 140),
             cls(op_print_paddr, 141),
             cls(op_load, 142),
+            cls(op_not, 143),
             cls(op_rtrue, 176),
             cls(op_rfalse, 177),
             cls(op_print, 178),
@@ -333,6 +334,10 @@ def op_load(zm, *operands):
     varnum = operands[0]
     ref_val = zm.read_var(varnum)
     zm.do_store(ref_val)
+
+def op_not(zm, *operands):
+    val = (~operands[0]) & 0xffff
+    zm.do_store(val)
 
 def op_rtrue(zm, *operands):
     zm.do_return(True)

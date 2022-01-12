@@ -60,7 +60,7 @@ class screen():
         def flush_buffer(self, window):
             text = self.buffer.getvalue()
             self.buffer = io.StringIO()
-            height, width = window.getmaxyx()
+            win_height = window.getmaxyx()[0]
             y, x = window.getyx()
             output_lines = self.wrap_lines(text, window)
             for line in output_lines:
@@ -68,12 +68,12 @@ class screen():
                 if x == 0:
                     self.output_line_count += 1
                 x = 0
-                if self.output_line_count >= height - 2:
+                if self.output_line_count >= win_height - 2:
                     window.addstr('[MORE]')
                     window.refresh()
                     window.getch()
-                    window.addstr(height - 1, 0, ' ' * 6)
-                    window.move(height - 1, 0)
+                    window.addstr(win_height - 1, 0, ' ' * 6)
+                    window.move(win_height - 1, 0)
                     self.output_line_count = 0
             window.refresh()
 
@@ -169,11 +169,13 @@ class screen():
     class screen_v4_builder(abstract_screen_builder):
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
-            self.upper_window = curses.newwin(0, width, 0, 0)
-            self.lower_window = curses.newwin(height, width, 0, 0)
+            self.stdscr = stdscr
+            self.upper_window = stdscr.derwin(0, width, 0, 0)
+            self.lower_window = stdscr.derwin(height, width, 0, 0)
             self.lower_window.scrollok(True)
             self.lower_window.move(height - 1, 0)
             self.active_window = self.lower_window
+            self.saved_screen = None
             self.buffered_output = True
             self.zmachine.set_erase_window_handler(self.erase_window)
             self.zmachine.set_split_window_handler(self.split_window)
@@ -192,8 +194,13 @@ class screen():
             flags1 |= 0xc
             self.zmachine.write_byte(0x1, flags1)
 
+        def flush_buffer(self, window):
+            if window == self.active_window and self.buffer.tell() != 0:
+                self.saved_screen = None
+                super().flush_buffer(window)
+
         def input_handler(self, lowercase = True):
-            self.upper_window.refresh()
+            #self.upper_window.refresh()
             return super().input_handler(lowercase)
 
         def print_handler(self, text, newline = False):
@@ -206,7 +213,8 @@ class screen():
                         self.active_window.addstr("\n")
                 except curses.error:
                     pass
-                self.active_window.refresh()
+                self.upper_window.refresh()
+                self.lower_window.refresh()
 
         def read_char(self):
             self.upper_window.refresh()
@@ -230,25 +238,43 @@ class screen():
                 self.upper_window.erase()
 
         def split_window(self, lines):
-            try:
+            self.flush_buffer(self.lower_window)
+            prev_lines = self.height - self.lower_window.getmaxyx()[0]
+            if lines > prev_lines:
+                self.saved_screen = curses.newpad(self.height, self.width)
+                self.stdscr.overwrite(self.saved_screen)
+            if lines == 0:
+                self.upper_window.erase()
+            else:
+                if lines < prev_lines and self.saved_screen != None:
+                    self.stdscr.overwrite(self.saved_screen, 0, 0, 0, 0, prev_lines - 1, self.width - 1)
+                ypos = self.upper_window.getyx()[0]
+                if ypos >= lines:
+                    self.upper_window.move(0, 0)
                 self.upper_window.resize(lines, self.width)
-            except curses.error:
-                pass
-            self.lower_window.resize(self.height - lines, self.width)
-            self.lower_window.mvwin(lines, 0)
+            if lines < prev_lines:
+                self.lower_window.mvwin(lines, 0)
+                self.lower_window.resize(self.height - lines, self.width)
+            else:
+                self.lower_window.resize(self.height - lines, self.width)
+                self.lower_window.mvwin(lines, 0)
+            if lines < prev_lines and self.saved_screen != None:
+                self.saved_screen.overwrite(self.lower_window, lines, 0, 0, 0, self.height - lines - 1, self.width - 1)
             self.lower_window.move(self.height - lines - 1, 0)
+            self.stdscr.refresh()
 
         def set_window(self, window):
-            self.active_window.refresh()
             if window == 0:
-                self.set_active_window(self.lower_window)
                 self.lower_window.leaveok(False)
+                self.set_active_window(self.lower_window)
             elif window == 1:
-                self.set_active_window(self.upper_window)
+                self.flush_buffer(self.lower_window)
                 self.lower_window.leaveok(True)
+                self.set_active_window(self.upper_window)
 
         def set_cursor(self, y, x):
-            self.active_window.move(y - 1, x - 1)
+            if self.active_window == self.upper_window:
+                self.active_window.move(y - 1, x - 1)
 
         def set_buffer_mode(self, mode):
             self.buffered_output = mode != 0
