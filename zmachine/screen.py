@@ -194,15 +194,6 @@ class screen():
             flags1 |= 0xc
             self.zmachine.write_byte(0x1, flags1)
 
-        def flush_buffer(self, window):
-            if window == self.active_window and self.buffer.tell() != 0:
-                self.saved_screen = None
-                super().flush_buffer(window)
-
-        def input_handler(self, lowercase = True):
-            #self.upper_window.refresh()
-            return super().input_handler(lowercase)
-
         def print_handler(self, text, newline = False):
             if self.active_window == self.lower_window and self.buffered_output:
                 super().print_handler(text, newline)
@@ -224,12 +215,10 @@ class screen():
         def erase_window(self, num):
             self.flush_buffer(self.lower_window)
             if num == -2:
-                self.upper_window.erase()
-                self.lower_window.erase()
+                self.stdscr.erase()
                 self.output_line_count = 0
             elif num == -1:
-                self.upper_window.erase()
-                self.lower_window.erase()
+                self.stdscr.erase()
                 self.output_line_count = 0
                 self.split_window(0)
             elif num == 0:
@@ -240,14 +229,9 @@ class screen():
         def split_window(self, lines):
             self.flush_buffer(self.lower_window)
             prev_lines = self.height - self.lower_window.getmaxyx()[0]
-            if lines > prev_lines:
-                self.saved_screen = curses.newpad(self.height, self.width)
-                self.stdscr.overwrite(self.saved_screen)
             if lines == 0:
                 self.upper_window.erase()
             else:
-                if lines < prev_lines and self.saved_screen != None:
-                    self.stdscr.overwrite(self.saved_screen, 0, 0, 0, 0, prev_lines - 1, self.width - 1)
                 ypos = self.upper_window.getyx()[0]
                 if ypos >= lines:
                     self.upper_window.move(0, 0)
@@ -258,8 +242,6 @@ class screen():
             else:
                 self.lower_window.resize(self.height - lines, self.width)
                 self.lower_window.mvwin(lines, 0)
-            if lines < prev_lines and self.saved_screen != None:
-                self.saved_screen.overwrite(self.lower_window, lines, 0, 0, 0, self.height - lines - 1, self.width - 1)
             self.lower_window.move(self.height - lines - 1, 0)
             self.stdscr.refresh()
 
