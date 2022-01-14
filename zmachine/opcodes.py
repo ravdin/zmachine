@@ -467,6 +467,7 @@ def op_split_window(zm, *operands):
     zm.split_window_handler(operands[0])
 
 def op_set_window(zm, *operands):
+    zm.active_window = operands[0]
     zm.set_window_handler(operands[0])
 
 @signed_operands
@@ -491,6 +492,12 @@ def op_output_stream(zm, *operands):
         zm.output_streams |= 0x1
     elif stream == -1:
         zm.output_streams &= 0xe
+    elif stream == 2:
+        zm.output_streams |= 0x2
+        zm.set_scripting_enabled(True)
+    elif stream == -2:
+        zm.output_streams &= 0xd
+        zm.set_scripting_enabled(False)
     elif stream == 3:
         if zm.output_streams & 0x4 == 0x4:
             raise #TODO: This should open another stream.

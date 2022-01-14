@@ -3,3 +3,4 @@ __pycache__
 .venv
 *.sav
 debug.txt
+.DS_Store

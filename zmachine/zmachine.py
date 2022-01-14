@@ -64,7 +64,6 @@ class zmachine():
         self.release_number = self.memory_map[0x2:0x4]
         self.pc = self.byte_addr(0x6)
         self.dictionary_header = self.byte_addr(0x8)
-        self.flags2 = self.read_byte(0x10)
         self.object_header = self.byte_addr(0xa)
         self.global_vars = self.byte_addr(0xc)
         self.static_mem_ptr = self.byte_addr(0xe)
@@ -72,9 +71,13 @@ class zmachine():
         self.abbreviation_table = self.byte_addr(0x18)
         self.filelen = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
         self.checksum = self.read_word(0x1c)
+        filename = os.path.basename(self.file)
+        base_filename = os.path.splitext(filename)[0]
         if self.save_file == '':
-            filename = os.path.basename(self.file)
-            self.save_file = '{0}.sav'.format(os.path.splitext(filename)[0])
+            self.save_file = f'{base_filename}.sav'
+        self.default_script_file = f'{base_filename}.txt'
+        self.script_file = None
+        self.active_window = 0
 
     def set_height(self, height):
         self.write_byte(0x20, height)
@@ -95,7 +98,7 @@ class zmachine():
         self.show_status_handler()
 
     def do_restart(self):
-        flags2_bits = self.read_byte(0x10) & 0x3
+        flags2_bits = self.read_word(0x10) & 0x3
         with open(self.file, "rb") as s:
             dynamic_mem = s.read(self.static_mem_ptr)
             self.memory_map[:self.static_mem_ptr] = dynamic_mem
@@ -103,17 +106,17 @@ class zmachine():
         self.stack_frame.clear()
         self.set_flags_handler()
         # Set the transcribe and fixed pitch bits to the previous state.
-        flags2 = self.read_byte(0x10)
-        flags2 &= 0xfc
+        flags2 = self.read_word(0x10)
+        flags2 &= 0xfffc
         flags2 |= flags2_bits
-        self.write_byte(0x10, flags2)
+        self.write_word(0x10, flags2)
 
     def do_save(self):
         filepath = os.path.dirname(self.file)
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(filepath, save_file)
         if os.path.exists(save_full_path):
-            self.do_print('Overwrite existing file? (Y is affirmative) ')
+            self.print_handler('Overwrite existing file? (Y is affirmative) ')
             if self.input_handler() != 'y':
                 return False
         data_len = 0
@@ -143,15 +146,12 @@ class zmachine():
             return False
 
     def do_restore(self):
-        flags2_bits = self.read_byte(0x10) & 0x3
+        flags2_bits = self.read_word(0x10) & 0x3
         filepath = os.path.dirname(self.file)
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(filepath, save_file)
         if not os.path.exists(save_full_path):
             return False
-        transcript_bit = self.flags2 & 0x1
-        fixed_pitch_bit = self.flags2 & 0x2
-
         chunks = {}
         with open(save_full_path, 'rb') as s:
             header = s.read(4)
@@ -191,15 +191,15 @@ class zmachine():
         self.pc = pc
 
         # Set the transcribe and fixed pitch bits to the previous state.
-        flags2 = self.read_byte(0x10)
-        flags2 &= 0xfc
+        flags2 = self.read_word(0x10)
+        flags2 &= 0xfffc
         flags2 |= flags2_bits
-        self.write_byte(0x10, flags2)
+        self.write_word(0x10, flags2)
         return True
 
     def prompt_save_file(self):
-        self.do_print('Enter a file name.', True)
-        self.do_print(f'Default is "{self.save_file}": ')
+        self.print_handler('Enter a file name.', True)
+        self.print_handler(f'Default is "{self.save_file}": ')
         save_file = self.input_handler(lowercase = False).strip()
         if save_file == '':
             save_file = self.save_file
@@ -250,6 +250,31 @@ class zmachine():
                 byte_ptr += 1
             mem_ptr += 1
         return dynamic_mem
+
+    def get_scripting_enabled(self):
+        return self.read_word(0x10) & 0x1 == 0x1
+
+    def set_scripting_enabled(self, val):
+        flags2 = self.read_word(0x10)
+        if val:
+            flags2 |= 0x1
+        else:
+            flags2 &= 0xfffe
+        self.write_word(0x10, flags2)
+
+    def prompt_script_file(self):
+        filepath = os.path.dirname(self.file)
+        self.print_handler('Enter a file name.', True)
+        self.print_handler(f'Default is "{self.default_script_file}": ')
+        script_file = self.input_handler(lowercase = False).strip()
+        if script_file == '':
+            script_file = self.default_script_file
+        script_full_path = os.path.join(filepath, script_file)
+        if os.path.exists(script_full_path):
+            self.print_handler('Overwrite existing file? (Y is affirmative) ')
+            if self.input_handler() != 'y':
+                return None
+        return script_file
 
     def separator_chars(self):
         ptr = self.dictionary_header
@@ -604,8 +629,6 @@ class zmachine():
             else:
                 self.pc += offset - 2
 
-
-
     def default_set_flags_handler(self):
         pass
 
@@ -680,6 +703,8 @@ class zmachine():
 
     def do_read(self, text_buffer, parse_buffer):
         command = self.input_handler()
+        if self.get_scripting_enabled():
+            self.do_transcript(command, True)
         max_text_len = self.read_byte(text_buffer) + 1
         if max_text_len < 3:
             raise Exception("Parse error")
@@ -707,12 +732,29 @@ class zmachine():
             if newline:
                 self.memory_stream.write("\n")
             return
+        if self.active_window == 0 and self.get_scripting_enabled():
+            self.do_transcript(text, newline)
         if self.output_streams & 0x1 == 0x1:
             self.print_handler(text, newline)
 
     def do_print_encoded(self, encoded, newline = False):
         text = zscii_decode(self, encoded)
         self.do_print(text, newline)
+
+    def do_transcript(self, text, newline = False):
+        script_file_mode = 'a'
+        if self.script_file == None:
+            script_file_mode = 'w'
+            self.script_file = self.prompt_script_file()
+            if self.script_file == None:
+                self.set_scripting_enabled(False)
+        if self.script_file != None:
+            filepath = os.path.dirname(self.file)
+            script_full_path = os.path.join(filepath, self.script_file)
+            with open(script_full_path, script_file_mode) as s:
+                s.write(text)
+                if newline:
+                    s.write("\n")
 
     class stack_frame():
         def __init__(self, from_frame = None):
