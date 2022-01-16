@@ -179,6 +179,7 @@ class screen():
             self.active_window = self.lower_window
             self.saved_screen = None
             self.buffered_output = True
+            self.has_scrolled_after_resize = False
             self.zmachine.set_erase_window_handler(self.erase_window)
             self.zmachine.set_split_window_handler(self.split_window)
             self.zmachine.set_set_window_handler(self.set_window)
@@ -206,8 +207,30 @@ class screen():
                         self.active_window.addstr("\n")
                 except curses.error:
                     pass
+                self.has_scrolled_after_resize = False
                 self.upper_window.refresh()
                 self.lower_window.refresh()
+
+        def flush_buffer(self, window):
+            # After a split_window, the first scroll of the lower window
+            # will cause the contents of the upper window to be copied into it.
+            # This effect is desirable when the game expands the upper window,
+            # writes reversed text near the top of the screen, then shrinks
+            # the upper window, leaving the reversed text as an overlay.
+            # If the upper window is left expanded (e.g. Library Mode in AMFV),
+            # then the duplicated lines in the lower window must be erased.
+            if not self.has_scrolled_after_resize and not self.buffered_output:
+                upper_window_height = self.height - self.lower_window.getmaxyx()[0]
+                y, x = self.lower_window.getyx()
+                self.lower_window.addstr("\n")
+                self.lower_window.move(0, 0)
+                self.lower_window.insertln()
+                for i in range(upper_window_height):
+                    self.lower_window.move(i, 0)
+                    self.lower_window.clrtoeol()
+                self.lower_window.move(y, x)
+                self.has_scrolled_after_resize = True
+            super().flush_buffer(window)
 
         def read_char(self):
             self.upper_window.refresh()
@@ -244,6 +267,7 @@ class screen():
             else:
                 self.lower_window.resize(self.height - lines, self.width)
                 self.lower_window.mvwin(lines, 0)
+            self.has_scrolled_after_resize = False
             self.lower_window.move(self.height - lines - 1, 0)
             self.stdscr.refresh()
 
@@ -252,7 +276,6 @@ class screen():
                 self.lower_window.leaveok(False)
                 self.set_active_window(self.lower_window)
             elif window == 1:
-                self.flush_buffer(self.lower_window)
                 self.lower_window.leaveok(True)
                 self.set_active_window(self.upper_window)
 
@@ -261,10 +284,13 @@ class screen():
                 self.active_window.move(y - 1, x - 1)
 
         def set_buffer_mode(self, mode):
+            if mode == 0:
+                self.flush_buffer(self.lower_window)
             self.buffered_output = mode != 0
 
         def set_text_style(self, style):
-            self.flush_buffer(self.lower_window)
+            if self.active_window == self.lower_window:
+                self.flush_buffer(self.lower_window)
             self.active_window.refresh()
             styles = {
                 0x1: curses.A_REVERSE,
