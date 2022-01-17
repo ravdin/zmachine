@@ -228,9 +228,7 @@ class screen():
                 self.lower_window.addstr("\n")
                 self.lower_window.move(0, 0)
                 self.lower_window.insertln()
-                for i in range(upper_window_height):
-                    if i >= lower_window_height:
-                        break
+                for i in range(min(upper_window_height, lower_window_height)):
                     self.lower_window.move(i, 0)
                     self.lower_window.clrtoeol()
                 self.lower_window.move(y, x)
@@ -271,8 +269,11 @@ class screen():
                 self.lower_window.mvwin(lines, 0)
                 self.lower_window.resize(self.height - lines, self.width)
             else:
-                self.lower_window.resize(self.height - lines, self.width)
-                self.lower_window.mvwin(lines, 0)
+                if self.height == lines:
+                    self.lower_window.erase()
+                else:
+                    self.lower_window.resize(self.height - lines, self.width)
+                    self.lower_window.mvwin(lines, 0)
             self.has_scrolled_after_resize = False
             self.reset_cursor(self.lower_window)
             self.stdscr.noutrefresh()

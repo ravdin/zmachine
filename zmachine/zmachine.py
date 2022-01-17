@@ -104,7 +104,6 @@ class zmachine():
             self.memory_map[:self.static_mem_ptr] = dynamic_mem
         self.do_initialize()
         self.stack_frame.clear()
-        self.set_flags_handler()
         # Set the transcribe and fixed pitch bits to the previous state.
         flags2 = self.read_word(0x10)
         flags2 &= 0xfffc
@@ -186,6 +185,12 @@ class zmachine():
             self.do_print("Invalid save file!", True)
             return False
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
+        # Preserve the height/width settings.
+        # The game may or may not honor after a restore if the saved
+        # settings are different.
+        if self.version >= 4:
+            dynamic_mem[0x20] = self.read_byte(0x20)
+            dynamic_mem[0x21] = self.read_byte(0x21)
         self.memory_map[:self.static_mem_ptr] = dynamic_mem
         self.stack_frame.read(stack_chunk.data)
         self.pc = pc
