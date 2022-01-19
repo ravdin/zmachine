@@ -66,9 +66,10 @@ class screen():
             output_lines = self.wrap_lines(text, window)
             for line in output_lines:
                 window.addstr(line)
+                if line[-1] == "\n":
+                    x = 0
                 if x == 0:
                     self.output_line_count += 1
-                x = 0
                 if self.output_line_count >= win_height - 2:
                     window.addstr('[MORE]')
                     window.refresh()
