@@ -2,3 +2,5 @@ __pycache__
 .ipynb_checkpoints
 .venv
 *.sav
+debug.txt
+.DS_Store
