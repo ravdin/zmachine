@@ -4,7 +4,7 @@ Python 3 implementation of a z-machine interpreter, for playing Infocom games. T
 
 `python zmachine [GAME_FILE]`
 
-The interpreter supports versions 3 and 4 (version 4 games include Trinity, AMFV, and Bureaucracy).
+The interpreter supports versions 3 and 4 (version 4 games include Trinity, AMFV, and Bureaucracy). Save files are in [Quetzal](http://inform-fiction.org/zmachine/standards/quetzal/index.html) format and should be compatible with the Frotz interpreter.
 
 The original Zork trilogy (written by Tim Anderson, Marc Blank, Bruce Daniels, and Dave Lebling) is in the `games` directory.
 
