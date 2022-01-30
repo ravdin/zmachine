@@ -131,8 +131,7 @@ class zmachine():
         stack_data = self.stack_frame.write()
         stack_chunk = zmachine.iff_chunk('Stks', stack_data)
         for chunk in (header_chunk, mem_chunk, stack_chunk):
-            data_len += 8 + len(chunk.data)
-            data_len += len(chunk.data) & 1 == 1
+            data_len += len(chunk)
         try:
             with open(save_full_path, 'wb') as s:
                 s.write(IFF_HEADER)
@@ -165,10 +164,7 @@ class zmachine():
             bytes_read = 0
             while bytes_read < data_len:
                 chunk = zmachine.iff_chunk.read(s)
-                bytes_read += len(chunk.data) + 8
-                # Pad byte
-                if bytes_read & 1 == 1:
-                    bytes_read += 1
+                bytes_read += len(chunk)
                 chunks[chunk.header] = chunk
         try:
             header_chunk = chunks['IFhd']
@@ -901,8 +897,12 @@ class zmachine():
                 stream.write(b'\x00' * (4 - bytes_written))
             stream.write(len(self.data).to_bytes(4, "big"))
             stream.write(self.data)
+            # Pad byte.
             if len(self.data) & 1 == 1:
                 stream.write(b'\x00')
+
+        def __len__(self):
+            return len(self.data) + 8 + (len(self.data) & 1)
 
     class memory_stream():
         def __init__(self, zmachine):
