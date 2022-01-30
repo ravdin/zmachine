@@ -41,6 +41,8 @@ class zmachine():
             with open(self.debug_file, 'w') as s:
                 s.write('')
         self.do_initialize()
+        # Set interpreter version to 1.1
+        self.write_word(0x32, 0x101)
 
     def do_run(self):
         while not self.quit:
@@ -118,7 +120,7 @@ class zmachine():
             self.print_handler('Overwrite existing file? (Y is affirmative) ')
             if self.input_handler() != 'y':
                 return False
-        data_len = 0
+        data_len = len(IFZS_ID)
         header_data = self.release_number[:]
         header_data += self.serial_number
         header_data += self.checksum.to_bytes(2, "big")
@@ -130,6 +132,7 @@ class zmachine():
         stack_chunk = zmachine.iff_chunk('Stks', stack_data)
         for chunk in (header_chunk, mem_chunk, stack_chunk):
             data_len += 8 + len(chunk.data)
+            data_len += len(chunk.data) & 1 == 1
         try:
             with open(save_full_path, 'wb') as s:
                 s.write(IFF_HEADER)
@@ -215,7 +218,7 @@ class zmachine():
     # This method (from Bryan Scattergood) is more interesting and elegant.
     # The main idea is to exclusive-or each byte of the dynamic memory with
     # the byte in the original game file. If the result is zero (not changed),
-    # write a zero byte followed by the number of zero bytes (i.e. the number)
+    # write a zero byte followed by the number of zero bytes (i.e. the number
     # of bytes we can skip when restoring the dynamic memory).
     # Otherwise, write the result of the exclusive or.
     def compress_dynamic_memory(self):
@@ -886,7 +889,7 @@ class zmachine():
             header = ''.join([chr(b) for b in stream.read(4)])
             count = int.from_bytes(stream.read(4), "big")
             data = stream.read(count)
-            # Pad byte
+            # Pad byte.
             if count & 1 == 1:
                 stream.read(1)
             return cls(header, data)
