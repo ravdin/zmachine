@@ -41,8 +41,6 @@ class zmachine():
             with open(self.debug_file, 'w') as s:
                 s.write('')
         self.do_initialize()
-        # Set interpreter version to 1.1
-        self.write_word(0x32, 0x101)
 
     def do_run(self):
         while not self.quit:
@@ -52,9 +50,9 @@ class zmachine():
         self.version = self.read_byte(0)
         if self.version not in SUPPORTED_VERSIONS:
             if self.version <= 6:
-                self.do_print(f"Unsupported zmachine version: v{self.version}", True)
+                self.print_handler(f"Unsupported zmachine version: v{self.version}", True)
             else:
-                self.do_print("Unrecognized z-machine file", True)
+                self.print_handler("Unrecognized z-machine file", True)
             self.quit = True
             return
         self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
@@ -80,6 +78,8 @@ class zmachine():
         self.default_script_file = f'{base_filename}.txt'
         self.script_file = None
         self.active_window = 0
+        # Set interpreter version to 1.1
+        self.write_word(0x32, 0x101)
 
     def set_height(self, height):
         self.write_byte(0x20, height)
@@ -143,7 +143,7 @@ class zmachine():
             self.save_file = save_file
             return True
         except Exception:
-            raise
+            #raise
             return False
 
     def do_restore(self):

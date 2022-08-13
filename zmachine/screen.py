@@ -108,7 +108,7 @@ class screen():
             output_lines = self.wrap_lines(text, window)
             for line in output_lines:
                 window.addstr(line)
-                if line[-1] == "\n":
+                if len(line) > 0 and line[-1] == "\n":
                     x = 0
                 if x == 0:
                     self.output_line_count += 1
