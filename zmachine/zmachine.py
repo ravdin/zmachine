@@ -24,6 +24,14 @@ class zmachine():
                 self.print_handler("Unrecognized z-machine file", True)
             self.quit = True
             return
+
+        filename = os.path.basename(self.file)
+        base_filename = os.path.splitext(filename)[0]
+        self.save_file = f'{base_filename}.sav'
+        self.default_script_file = f'{base_filename}.txt'
+        self.script_file = None
+        self.active_window = 0
+
         self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
         self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
@@ -40,12 +48,11 @@ class zmachine():
         self.abbreviation_table = self.byte_addr(0x18)
         self.filelen = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
         self.checksum = self.read_word(0x1c)
-        self.stack_frame = zmachine.stack_frame()
+        self.stack_frame = zmachine.StackFrame()
         self.stack = self.stack_frame.eval_stack
         self.local_vars = self.stack_frame.local_vars
         self.quit = False
         self.debug = debug
-        self.save_file = ''
         self.output_streams = 0x1
         self.print_handler = self.default_print_handler
         self.input_handler = self.default_input_handler
@@ -58,28 +65,18 @@ class zmachine():
         self.set_cursor_handler = self.default_set_cursor_handler
         self.set_text_style_handler = self.default_set_text_style_handler
         self.read_char_handler = self.default_read_char_handler
+        # Set interpreter version to 1.1
+        self.write_word(0x32, 0x101)
         if debug:
             debug_file = 'debug.txt'
             filepath = os.path.dirname(self.file)
             self.debug_file = os.path.join(filepath, debug_file)
             with open(self.debug_file, 'w') as s:
                 s.write('')
-        self.do_initialize()
 
     def do_run(self):
         while not self.quit:
             self.run_instruction()
-
-    def do_initialize(self):
-        filename = os.path.basename(self.file)
-        base_filename = os.path.splitext(filename)[0]
-        if self.save_file == '':
-            self.save_file = f'{base_filename}.sav'
-        self.default_script_file = f'{base_filename}.txt'
-        self.script_file = None
-        self.active_window = 0
-        # Set interpreter version to 1.1
-        self.write_word(0x32, 0x101)
 
     def set_height(self, height):
         self.write_byte(0x20, height)
@@ -104,7 +101,7 @@ class zmachine():
         with open(self.file, "rb") as s:
             dynamic_mem = s.read(self.static_mem_ptr)
             self.memory_map[:self.static_mem_ptr] = dynamic_mem
-        self.do_initialize()
+        self.pc = self.byte_addr(0x6)
         self.stack_frame.clear()
         # Set the transcribe and fixed pitch bits to the previous state.
         flags2 = self.read_word(0x10)
@@ -125,11 +122,11 @@ class zmachine():
         header_data += self.serial_number
         header_data += self.checksum.to_bytes(2, "big")
         header_data += self.pc.to_bytes(3, "big")
-        header_chunk = zmachine.iff_chunk('IFhd', header_data)
+        header_chunk = zmachine.IffChunk('IFhd', header_data)
         dynamic_memory = self.compress_dynamic_memory()
-        mem_chunk = zmachine.iff_chunk('CMem', dynamic_memory)
+        mem_chunk = zmachine.IffChunk('CMem', dynamic_memory)
         stack_data = self.stack_frame.write()
-        stack_chunk = zmachine.iff_chunk('Stks', stack_data)
+        stack_chunk = zmachine.IffChunk('Stks', stack_data)
         for chunk in (header_chunk, mem_chunk, stack_chunk):
             data_len += len(chunk)
         try:
@@ -163,7 +160,7 @@ class zmachine():
                 return False
             bytes_read = 0
             while bytes_read < data_len:
-                chunk = zmachine.iff_chunk.read(s)
+                chunk = zmachine.IffChunk.read(s)
                 bytes_read += len(chunk)
                 chunks[chunk.header] = chunk
         try:
@@ -768,12 +765,12 @@ class zmachine():
 
     def do_transcript(self, text, newline=False):
         script_file_mode = 'a'
-        if self.script_file == None:
+        if self.script_file is None:
             script_file_mode = 'w'
             self.script_file = self.prompt_script_file()
             if self.script_file == None:
                 self.set_scripting_enabled(False)
-        if self.script_file != None:
+        if self.script_file is not None:
             filepath = os.path.dirname(self.file)
             script_full_path = os.path.join(filepath, self.script_file)
             with open(script_full_path, script_file_mode) as s:
@@ -781,8 +778,8 @@ class zmachine():
                 if newline:
                     s.write("\n")
 
-    class stack_frame():
-        def __init__(self, from_frame=None):
+    class StackFrame():
+        def __init__(self):
             self.return_pc = 0
             self.discard_result = False
             self.store_varnum = 0
@@ -794,7 +791,7 @@ class zmachine():
             self.num_locals = 0
 
         def push(self, **kwargs):
-            previous_frame = object.__new__(zmachine.stack_frame)
+            previous_frame = object.__new__(zmachine.StackFrame)
             previous_frame.return_pc = self.return_pc
             previous_frame.discard_result = self.discard_result
             previous_frame.store_varnum = self.store_varnum
@@ -814,7 +811,7 @@ class zmachine():
             self.previous_frame = previous_frame
 
         def pop(self):
-            if self.previous_frame == None:
+            if self.previous_frame is None:
                 raise Exception("Stack underflow")
             previous_frame = self.previous_frame
             self.return_pc = previous_frame.return_pc
@@ -829,7 +826,7 @@ class zmachine():
             del previous_frame
 
         def clear(self):
-            while self.previous_frame != None:
+            while self.previous_frame is not None:
                 self.pop()
             self.sp = 0
             self.num_locals = 0
@@ -868,7 +865,7 @@ class zmachine():
         def write(self):
             frames = []
             current_frame = self
-            while current_frame != None:
+            while current_frame is not None:
                 num_locals = self.num_locals if current_frame == self else len(current_frame.local_vars)
                 stack_len = self.sp if current_frame == self else len(current_frame.eval_stack)
                 data = [0] * (8 + 2 * num_locals + 2 * stack_len)
@@ -896,7 +893,7 @@ class zmachine():
                 result += frame
             return bytearray(result)
 
-    class iff_chunk():
+    class IffChunk():
         def __init__(self, header, data):
             self.header = header[:4]
             self.data = data
@@ -925,8 +922,10 @@ class zmachine():
         def __len__(self):
             return len(self.data) + 8 + (len(self.data) & 1)
 
-    class MemoryStream():
+    class MemoryStream(object):
         def __init__(self, zmachine):
+            self.ptr = None
+            self.addr = None
             self.buffer = [0] * 1024
             self.is_open = False
             self.zmachine = zmachine
@@ -951,4 +950,6 @@ class zmachine():
             self.zmachine.write_word(self.addr, self.ptr)
             for i in range(self.ptr):
                 self.zmachine.write_byte(self.addr + i + 2, self.buffer[i])
+            self.ptr = None
+            self.addr = None
             self.is_open = False
