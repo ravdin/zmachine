@@ -5,3 +5,4 @@ __pycache__
 *.qzl
 debug.txt
 .DS_Store
+.idea

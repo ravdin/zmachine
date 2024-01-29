@@ -200,7 +200,6 @@ def op_loadb(zm, *operands):
 def op_get_prop(zm, *operands):
     obj_id, prop_id = operands
     prop_ptr = zm.lookup_property(obj_id, prop_id)
-    result = 0
     if prop_ptr == None:
         if prop_id < 0 or prop_id > zm.PROPERTY_DEFAULTS_LENGTH:
             raise InvalidArgumentException(f"property id: {prop_id}")
@@ -435,7 +434,7 @@ def op_print_char(zm, *operands):
     elif zscii_code < 32 or zscii_code > 126:
         if zscii_code == 10:
             zscii_code = 13
-        if zscii_code != 13:
+        if zscii_code != 13 and not (155 <= zscii_code <= 251):
             raise ZSCIIException("Invalid ZSCII code '{0}'".format(zscii_code))
     else:
         zm.do_print(chr(zscii_code))

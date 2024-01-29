@@ -1,5 +1,4 @@
 import os
-import sys
 import opcodes
 from utils import *
 from error import *
@@ -9,44 +8,14 @@ STACK_LENGTH = 1024
 IFF_HEADER = bytearray('FORM'.encode('UTF-8'))
 IFZS_ID = bytearray('IFZS'.encode('UTF-8'))
 
+
 class zmachine():
-    def __init__(self, file, debug = False):
+    def __init__(self, file, debug=False):
         with open(file, "rb") as s:
             memory_map = s.read()
+            self.memory_map = bytearray(memory_map)
+        self.memory_stream = zmachine.MemoryStream(self)
         self.file = file
-        self.memory_map = bytearray(memory_map)
-        self.stack_frame = zmachine.stack_frame()
-        self.stack = self.stack_frame.eval_stack
-        self.local_vars = self.stack_frame.local_vars
-        self.quit = False
-        self.debug = debug
-        self.save_file = ''
-        self.output_streams = 0x1
-        self.memory_stream = zmachine.memory_stream(self)
-        self.print_handler = self.default_print_handler
-        self.input_handler = self.default_input_handler
-        self.set_flags_handler = self.default_set_flags_handler
-        self.show_status_handler = self.default_show_status_handler
-        self.erase_window_handler = self.default_erase_window_handler
-        self.split_window_handler = self.default_split_window_handler
-        self.set_window_handler = self.default_set_window_handler
-        self.set_buffer_mode_handler = self.default_set_buffer_mode_handler
-        self.set_cursor_handler = self.default_set_cursor_handler
-        self.set_text_style_handler = self.default_set_text_style_handler
-        self.read_char_handler = self.default_read_char_handler
-        if debug:
-            debug_file = 'debug.txt'
-            filepath = os.path.dirname(self.file)
-            self.debug_file = os.path.join(filepath, debug_file)
-            with open(self.debug_file, 'w') as s:
-                s.write('')
-        self.do_initialize()
-
-    def do_run(self):
-        while not self.quit:
-            self.run_instruction()
-
-    def do_initialize(self):
         self.version = self.read_byte(0)
         if self.version not in SUPPORTED_VERSIONS:
             if self.version <= 6:
@@ -71,6 +40,37 @@ class zmachine():
         self.abbreviation_table = self.byte_addr(0x18)
         self.filelen = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
         self.checksum = self.read_word(0x1c)
+        self.stack_frame = zmachine.stack_frame()
+        self.stack = self.stack_frame.eval_stack
+        self.local_vars = self.stack_frame.local_vars
+        self.quit = False
+        self.debug = debug
+        self.save_file = ''
+        self.output_streams = 0x1
+        self.print_handler = self.default_print_handler
+        self.input_handler = self.default_input_handler
+        self.set_flags_handler = self.default_set_flags_handler
+        self.show_status_handler = self.default_show_status_handler
+        self.erase_window_handler = self.default_erase_window_handler
+        self.split_window_handler = self.default_split_window_handler
+        self.set_window_handler = self.default_set_window_handler
+        self.set_buffer_mode_handler = self.default_set_buffer_mode_handler
+        self.set_cursor_handler = self.default_set_cursor_handler
+        self.set_text_style_handler = self.default_set_text_style_handler
+        self.read_char_handler = self.default_read_char_handler
+        if debug:
+            debug_file = 'debug.txt'
+            filepath = os.path.dirname(self.file)
+            self.debug_file = os.path.join(filepath, debug_file)
+            with open(self.debug_file, 'w') as s:
+                s.write('')
+        self.do_initialize()
+
+    def do_run(self):
+        while not self.quit:
+            self.run_instruction()
+
+    def do_initialize(self):
         filename = os.path.basename(self.file)
         base_filename = os.path.splitext(filename)[0]
         if self.save_file == '':
@@ -143,7 +143,7 @@ class zmachine():
             self.save_file = save_file
             return True
         except Exception:
-            #raise
+            # raise
             return False
 
     def do_restore(self):
@@ -176,11 +176,11 @@ class zmachine():
             pc = int.from_bytes(header_chunk.data[10:13], "big")
             encoded_memory = mem_chunk.data
         except Exception as err:
-            #print(f'{err}')
+            # print(f'{err}')
             return False
         if release_number != self.release_number or \
-           serial_number != self.serial_number or \
-           checksum != self.checksum:
+                serial_number != self.serial_number or \
+                checksum != self.checksum:
             self.do_print("Invalid save file!", True)
             return False
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
@@ -204,7 +204,7 @@ class zmachine():
     def prompt_save_file(self):
         self.print_handler('Enter a file name.', True)
         self.print_handler(f'Default is "{self.save_file}": ')
-        save_file = self.input_handler(lowercase = False).strip()
+        save_file = self.input_handler().strip()
         if save_file == '':
             save_file = self.save_file
         return save_file
@@ -231,7 +231,7 @@ class zmachine():
                 zero_count += 1
             else:
                 while zero_count > 0:
-                    result[result_ptr+1] = min(zero_count - 1, 0xff)
+                    result[result_ptr + 1] = min(zero_count - 1, 0xff)
                     zero_count = max(zero_count - 0x100, 0)
                     result_ptr += 2
                 result[result_ptr] = val
@@ -270,7 +270,7 @@ class zmachine():
         filepath = os.path.dirname(self.file)
         self.print_handler('Enter a file name.', True)
         self.print_handler(f'Default is "{self.default_script_file}": ')
-        script_file = self.input_handler(lowercase = False).strip()
+        script_file = self.input_handler().strip()
         if script_file == '':
             script_file = self.default_script_file
         script_full_path = os.path.join(filepath, script_file)
@@ -294,6 +294,7 @@ class zmachine():
                 result <<= 16
                 result |= self.read_word(ptr + 4)
             return result
+
         encoded_len = 4 if self.version <= 3 else 6
         encoded = zscii_encode(text, encoded_len)
         ptr = self.dictionary_header
@@ -317,40 +318,68 @@ class zmachine():
         return lo_ptr if read_entry(lo_ptr) == encoded else 0
 
     def run_instruction(self):
+        def large_constant_operand():
+            return self.read_from_pc(2)
+
+        def small_constant_operand():
+            return self.read_from_pc()
+
+        def variable_operand():
+            varnum = self.read_from_pc()
+            return self.read_var(varnum)
+
         instruction_ptr = self.pc
         opcode = self.read_from_pc()
         opcode_number = opcode
         if opcode <= 0x7f:
             # long form, 2OP
             opcode_number = opcode & 0x1f
-            operands = [
-                self.read_operand(1 if opcode & 0x40 == 0 else 2)[0],
-                self.read_operand(1 if opcode & 0x20 == 0 else 2)[0]
-            ]
+            if opcode <= 0x1f:
+                operands = [small_constant_operand(), small_constant_operand()]
+            elif opcode <= 0x3f:
+                operands = [small_constant_operand(), variable_operand()]
+            elif opcode <= 0x5f:
+                operands = [variable_operand(), small_constant_operand()]
+            else:
+                operands = [variable_operand(), variable_operand()]
         elif opcode <= 0xbf:
             # short form, except 0xbe
             if opcode == 0xbe:
                 raise Exception('Extended opcode not supported')
-            operand, exists = self.read_operand(opcode >> 4 & 0x3)
-            opcode_number = opcode & 0xf | (0x80 if exists else 0xb0)
-            operands = [operand] if exists else []
+            opcode_number = (opcode & 0xf) | 0x80
+            if opcode <= 0x8f:
+                operands = [large_constant_operand()]
+            elif opcode <= 0x9f:
+                operands = [small_constant_operand()]
+            elif opcode <= 0xaf:
+                operands = [variable_operand()]
+            else:
+                operands = []
+                opcode_number = (opcode & 0xf) | 0xb0
         else:
             # variable form
-            b = self.read_from_pc()
-            if opcode < 0xe0:
+            operands = []
+            if opcode <= 0xdf:
                 # 2OP form, opcode number is bottom 5 bits.
                 opcode_number = opcode & 0x1f
-            optypes = [b >> i & 0x3 for i in range(6, -1, -2)]
             if opcode in (0xec, 0xfa):
                 # call_vn2 and call_vs2 have extra operands.
-                b = self.read_from_pc()
-                optypes += [b >> i & 0x3 for i in range(6, -1, -2)]
-            operands = []
-            for optype in optypes:
-                operand, exists = self.read_operand(optype)
-                if not exists:
+                operand_bits = self.read_from_pc(2)
+                shift = 14
+            else:
+                operand_bits = self.read_from_pc()
+                shift = 6
+            while shift >= 0:
+                operand_type = (operand_bits >> shift) & 0x3
+                if operand_type == 0:
+                    operands += [large_constant_operand()]
+                elif operand_type == 1:
+                    operands += [small_constant_operand()]
+                elif operand_type == 2:
+                    operands += [variable_operand()]
+                else:
                     break
-                operands += [operand]
+                shift -= 2
         if self.debug:
             opname = self.opcodes[opcode_number].__name__[3:].upper()
             with open(self.debug_file, 'a') as s:
@@ -362,17 +391,6 @@ class zmachine():
             print('{0:x}'.format(instruction_ptr), '{0:x}'.format(opcode), opcode_number)
             raise
 
-    def read_operand(self, optype):
-        if optype == 0:
-            return self.read_from_pc(2), True
-        elif optype == 1:
-            return self.read_from_pc(), True
-        elif optype == 2:
-            varnum = self.read_from_pc()
-            return self.read_var(varnum), True
-        else:
-            return None, False
-
     @staticmethod
     def sign_uint14(num):
         # For branch offsets
@@ -380,7 +398,7 @@ class zmachine():
             num = -(~num & 0x3fff) - 1
         return num
 
-    def read_from_pc(self, num_bytes = 1):
+    def read_from_pc(self, num_bytes=1):
         result = 0
         for _ in range(num_bytes):
             result <<= 8
@@ -406,15 +424,15 @@ class zmachine():
         if addr + 1 >= self.static_mem_ptr:
             raise IllegalWriteException(f"{addr:x}")
         self.memory_map[addr] = val >> 8 & 0xff
-        self.memory_map[addr+1] = val & 0xff
+        self.memory_map[addr + 1] = val & 0xff
 
     def write_dword(self, addr, val):
         if addr + 3 >= self.static_mem_ptr:
             raise IllegalWriteException(f"{addr:x}")
         self.memory_map[addr] = val >> 24 & 0xff
-        self.memory_map[addr+1] = val >> 16 & 0xff
-        self.memory_map[addr+2] = val >> 8 & 0xff
-        self.memory_map[addr+3] = val & 0xff
+        self.memory_map[addr + 1] = val >> 16 & 0xff
+        self.memory_map[addr + 2] = val >> 8 & 0xff
+        self.memory_map[addr + 3] = val & 0xff
 
     def byte_addr(self, ptr):
         return self.read_word(ptr)
@@ -463,7 +481,7 @@ class zmachine():
     def read_var(self, varnum):
         if varnum == 0:
             return self.stack_pop()
-        elif varnum >= 0x1 and varnum <= 0xf:
+        elif 0x1 <= varnum <= 0xf:
             # Local vars
             if varnum > self.stack_frame.num_locals:
                 raise Exception('Invalid index for local variable')
@@ -477,7 +495,7 @@ class zmachine():
         val &= 0xffff
         if varnum == 0:
             self.stack_push(val)
-        elif varnum >= 0x1 and varnum <= 0xf:
+        elif 0x1 <= varnum <= 0xf:
             if varnum > self.stack_frame.num_locals:
                 raise Exception('Invalid index for local variable')
             self.local_vars[varnum - 1] = val
@@ -493,34 +511,37 @@ class zmachine():
             self.OBJECT_BYTES * (obj_id - 1)
 
     def get_object_parent_id(self, obj_ptr):
-        return self.get_object_relative_id(obj_ptr, 0)
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 4)
+        return self.read_word(obj_ptr + 6)
 
     def set_object_parent_id(self, obj_ptr, val):
-        self.set_object_relative_id(obj_ptr, 0, val)
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 4, val)
+        else:
+            self.write_word(obj_ptr + 6, val)
 
     def get_object_sibling_id(self, obj_ptr):
-        return self.get_object_relative_id(obj_ptr, 1)
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 5)
+        return self.read_word(obj_ptr + 8)
 
     def set_object_sibling_id(self, obj_ptr, val):
-        self.set_object_relative_id(obj_ptr, 1, val)
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 5, val)
+        else:
+            self.write_word(obj_ptr + 8, val)
 
     def get_object_child_id(self, obj_ptr):
-        return self.get_object_relative_id(obj_ptr, 2)
+        if self.version <= 3:
+            return self.read_byte(obj_ptr + 6)
+        return self.read_word(obj_ptr + 10)
 
     def set_object_child_id(self, obj_ptr, val):
-        self.set_object_relative_id(obj_ptr, 2, val)
-
-    def get_object_relative_id(self, obj_ptr, relative_offset):
-        attr_bytes = 4 if self.version <= 3 else 6
-        ref_bytes = 1 if self.version <= 3 else 2
-        read_func = self.read_byte if self.version <= 3 else self.read_word
-        return read_func(obj_ptr + attr_bytes + relative_offset * ref_bytes)
-
-    def set_object_relative_id(self, obj_ptr, relative_offset, val):
-        attr_bytes = 4 if self.version <= 3 else 6
-        ref_bytes = 1 if self.version <= 3 else 2
-        write_func = self.write_byte if self.version <= 3 else self.write_word
-        write_func(obj_ptr + attr_bytes + relative_offset * ref_bytes, val)
+        if self.version <= 3:
+            self.write_byte(obj_ptr + 6, val)
+        else:
+            self.write_word(obj_ptr + 10, val)
 
     def orphan_object(self, obj_id):
         obj_ptr = self.lookup_object(obj_id)
@@ -533,10 +554,12 @@ class zmachine():
         if child_id == obj_id:
             self.set_object_child_id(parent_ptr, obj_next_sibling_id)
         else:
-            while child_id != obj_id:
+            while child_id != 0:
                 child_ptr = self.lookup_object(child_id)
                 child_id = self.get_object_sibling_id(child_ptr)
-            self.set_object_sibling_id(child_ptr, obj_next_sibling_id)
+                if child_id == obj_id:
+                    self.set_object_sibling_id(child_ptr, obj_next_sibling_id)
+                    break
         self.set_object_parent_id(obj_ptr, 0)
         self.set_object_sibling_id(obj_ptr, 0)
 
@@ -557,7 +580,6 @@ class zmachine():
                 return num, 1 if size_byte & 0x40 == 0 else 2, prop_ptr + 1
 
     def get_next_property_id(self, obj_id, prop_id):
-        prop_ptr = None
         if prop_id == 0:
             # Get the first property
             obj_ptr = self.lookup_object(obj_id)
@@ -566,7 +588,7 @@ class zmachine():
             prop_ptr += 2 * text_len + 1
         else:
             prop_ptr = self.lookup_property(obj_id, prop_id)
-            if prop_ptr == None:
+            if prop_ptr is None:
                 raise Exception("Invalid property lookup")
             _, size, data_ptr = self.get_property_data(prop_ptr)
             prop_ptr = data_ptr + size
@@ -577,7 +599,6 @@ class zmachine():
         prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
         text_len = self.read_byte(prop_ptr)
         prop_ptr += 2 * text_len + 1
-        num = 0xff
         while True:
             num, size, data_ptr = self.get_property_data(prop_ptr)
             if num <= prop_id:
@@ -585,7 +606,7 @@ class zmachine():
             prop_ptr = data_ptr + size
         return prop_ptr if num == prop_id else None
 
-    def do_routine(self, call_addr, args, discard_result = False):
+    def do_routine(self, call_addr, args, discard_result=False):
         store_varnum = 0
         if not discard_result:
             store_varnum = self.read_from_pc()
@@ -601,10 +622,10 @@ class zmachine():
                 local = args[i]
             local_vars[i] = local
         self.stack_frame.push(
-            return_pc = return_pc,
-            local_vars = local_vars,
-            discard_result = discard_result,
-            store_varnum = store_varnum
+            return_pc=return_pc,
+            local_vars=local_vars,
+            discard_result=discard_result,
+            store_varnum=store_varnum
         )
 
     def do_return(self, retval):
@@ -636,8 +657,8 @@ class zmachine():
     def default_set_flags_handler(self):
         pass
 
-    def default_print_handler(self, text, newline = False):
-        print(text, end = '\n' if newline else '')
+    def default_print_handler(self, text, newline=False):
+        print(text, end='\n' if newline else '')
 
     def default_input_handler(self):
         return input().lower()
@@ -730,7 +751,7 @@ class zmachine():
             self.write_byte(parse_ptr + 3, position + 1)
             parse_ptr += 4
 
-    def do_print(self, text, newline = False):
+    def do_print(self, text, newline=False):
         if self.output_streams & 0x4 == 0x4:
             self.memory_stream.write(text)
             if newline:
@@ -741,11 +762,11 @@ class zmachine():
         if self.output_streams & 0x1 == 0x1:
             self.print_handler(text, newline)
 
-    def do_print_encoded(self, encoded, newline = False):
+    def do_print_encoded(self, encoded, newline=False):
         text = zscii_decode(self, encoded)
         self.do_print(text, newline)
 
-    def do_transcript(self, text, newline = False):
+    def do_transcript(self, text, newline=False):
         script_file_mode = 'a'
         if self.script_file == None:
             script_file_mode = 'w'
@@ -761,7 +782,7 @@ class zmachine():
                     s.write("\n")
 
     class stack_frame():
-        def __init__(self, from_frame = None):
+        def __init__(self, from_frame=None):
             self.return_pc = 0
             self.discard_result = False
             self.store_varnum = 0
@@ -822,19 +843,19 @@ class zmachine():
                     self.push()
                 dummy_frame = False
 
-                return_pc = int.from_bytes(data[ptr:ptr+3], "big")
-                flags = int.from_bytes(data[ptr+3:ptr+4], "big")
-                store_varnum = int.from_bytes(data[ptr+4:ptr+5], "big")
-                args = int.from_bytes(data[ptr+5:ptr+6], "big")
-                stack_len = int.from_bytes(data[ptr+6:ptr+8], "big")
+                return_pc = int.from_bytes(data[ptr:ptr + 3], "big")
+                flags = int.from_bytes(data[ptr + 3:ptr + 4], "big")
+                store_varnum = int.from_bytes(data[ptr + 4:ptr + 5], "big")
+                args = int.from_bytes(data[ptr + 5:ptr + 6], "big")
+                stack_len = int.from_bytes(data[ptr + 6:ptr + 8], "big")
                 ptr += 8
                 discard_result = flags & 0x10 == 0x10
                 num_locals = flags & 0xf
                 for i in range(num_locals):
-                    self.local_vars[i] = int.from_bytes(data[ptr:ptr+2], "big")
+                    self.local_vars[i] = int.from_bytes(data[ptr:ptr + 2], "big")
                     ptr += 2
                 for i in range(stack_len):
-                    self.eval_stack[i] = int.from_bytes(data[ptr:ptr+2], "big")
+                    self.eval_stack[i] = int.from_bytes(data[ptr:ptr + 2], "big")
                     ptr += 2
                 self.return_pc = return_pc
                 self.discard_result = discard_result
@@ -855,17 +876,17 @@ class zmachine():
                 flags = num_locals
                 if current_frame.discard_result:
                     flags |= 0x10
-                data[ptr:ptr+3] = current_frame.return_pc.to_bytes(3, "big")
-                data[ptr+3:ptr+4] = flags.to_bytes(1, "big")
-                data[ptr+4:ptr+5] = current_frame.store_varnum.to_bytes(1, "big")
-                data[ptr+5:ptr+6] = current_frame.args.to_bytes(1, "big")
-                data[ptr+6:ptr+8] = stack_len.to_bytes(2, "big")
+                data[ptr:ptr + 3] = current_frame.return_pc.to_bytes(3, "big")
+                data[ptr + 3:ptr + 4] = flags.to_bytes(1, "big")
+                data[ptr + 4:ptr + 5] = current_frame.store_varnum.to_bytes(1, "big")
+                data[ptr + 5:ptr + 6] = current_frame.args.to_bytes(1, "big")
+                data[ptr + 6:ptr + 8] = stack_len.to_bytes(2, "big")
                 ptr += 8
                 for i in range(num_locals):
-                    data[ptr:ptr+2] = current_frame.local_vars[i].to_bytes(2, "big")
+                    data[ptr:ptr + 2] = current_frame.local_vars[i].to_bytes(2, "big")
                     ptr += 2
                 for i in range(stack_len):
-                    data[ptr:ptr+2] = current_frame.eval_stack[i].to_bytes(2, "big")
+                    data[ptr:ptr + 2] = current_frame.eval_stack[i].to_bytes(2, "big")
                     ptr += 2
                 frames += [data]
                 current_frame = current_frame.previous_frame
@@ -904,7 +925,7 @@ class zmachine():
         def __len__(self):
             return len(self.data) + 8 + (len(self.data) & 1)
 
-    class memory_stream():
+    class MemoryStream():
         def __init__(self, zmachine):
             self.buffer = [0] * 1024
             self.is_open = False
@@ -918,8 +939,10 @@ class zmachine():
         def write(self, str):
             if not self.is_open:
                 raise Exception("Writing to closed stream")
+
             def zscii(c):
                 return 13 if ord(c) == 10 else ord(c)
+
             for c in str:
                 self.buffer[self.ptr] = zscii(c)
                 self.ptr += 1
