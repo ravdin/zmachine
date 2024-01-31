@@ -501,11 +501,34 @@ class zmachine():
             self.write_word(addr, val)
 
     def lookup_object(self, obj_id):
-        if obj_id == 0 or obj_id > self.MAX_OBJECTS:
+        if obj_id <= 0 or obj_id > self.MAX_OBJECTS:
             raise InvalidMemoryException(f"Object ID '{obj_id}' out of range")
         return self.object_header + \
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
+
+    def get_object_attr_flag(self, obj_id, attr_num):
+        if attr_num < 0 or attr_num >= self.ATTRIBUTE_FLAGS:
+            raise InvalidArgumentException(f'Invalid attribute: {attr_num}')
+        byte_offset = attr_num >> 3
+        bit_offset = attr_num & 0x7
+        attr_flag = 0x80 >> bit_offset
+        obj_ptr = self.lookup_object(obj_id)
+        return self.read_byte(obj_ptr + byte_offset) & attr_flag == attr_flag
+
+    def set_object_attr_flag(self, obj_id, attr_num, value=bool):
+        if attr_num >= self.ATTRIBUTE_FLAGS:
+            raise InvalidArgumentException(f'Invalid attribute: {attr_num}')
+        byte_offset = attr_num >> 3
+        bit_offset = attr_num & 0x7
+        attr_flag = 0x80 >> bit_offset
+        obj_ptr = self.lookup_object(obj_id)
+        attribute_byte = self.read_byte(obj_ptr + byte_offset)
+        if value:
+            attribute_byte |= attr_flag
+        else:
+            attribute_byte &= (~attr_flag & 0xff)
+        self.write_byte(obj_ptr + byte_offset, attribute_byte)
 
     def get_object_parent_id(self, obj_ptr):
         if self.version <= 3:
@@ -560,48 +583,86 @@ class zmachine():
         self.set_object_parent_id(obj_ptr, 0)
         self.set_object_sibling_id(obj_ptr, 0)
 
-    def get_property_data(self, prop_ptr):
-        size_byte = self.read_byte(prop_ptr)
-        if size_byte == 0:
-            return 0, None, None
-        if self.version <= 3:
-            return size_byte & 0x1f, (size_byte >> 5) + 1, prop_ptr + 1
-        else:
-            num = size_byte & 0x3f
-            if size_byte & 0x80 == 0x80:
-                data_bytes = self.read_byte(prop_ptr + 1) & 0x3f
-                if data_bytes == 0:
-                    data_bytes = 0x40
-                return num, data_bytes, prop_ptr + 2
-            else:
-                return num, 1 if size_byte & 0x40 == 0 else 2, prop_ptr + 1
+    def get_default_property_data(self, prop_id):
+        if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
+            raise InvalidArgumentException(f"property id: {prop_id}")
+        return self.read_word(self.object_header + (prop_id - 1) * 2)
 
-    def get_next_property_id(self, obj_id, prop_id):
-        if prop_id == 0:
-            # Get the first property
-            obj_ptr = self.lookup_object(obj_id)
-            prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
-            text_len = self.read_byte(prop_ptr)
-            prop_ptr += 2 * text_len + 1
-        else:
-            prop_ptr = self.lookup_property(obj_id, prop_id)
-            if prop_ptr is None:
-                raise Exception("Invalid property lookup")
-            _, size, data_ptr = self.get_property_data(prop_ptr)
-            prop_ptr = data_ptr + size
-        return self.get_property_data(prop_ptr)[0]
-
-    def lookup_property(self, obj_id, prop_id):
-        obj_ptr = self.lookup_object(obj_id)
-        prop_ptr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
-        text_len = self.read_byte(prop_ptr)
-        prop_ptr += 2 * text_len + 1
+    def get_property_addr(self, obj_id, prop_id):
+        if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
+            raise InvalidArgumentException(f"Invalid property id: {prop_id}")
+        prop_addr = self.get_first_property_addr(obj_id)
         while True:
-            num, size, data_ptr = self.get_property_data(prop_ptr)
-            if num <= prop_id:
+            property_num = self.get_property_num(prop_addr)
+            if property_num == prop_id:
+                return prop_addr
+            if property_num < prop_id:
                 break
-            prop_ptr = data_ptr + size
-        return prop_ptr if num == prop_id else None
+            prop_addr = self.get_next_property_addr(prop_addr)
+        return None
+
+    def get_first_property_addr(self, obj_id):
+        obj_ptr = self.lookup_object(obj_id)
+        prop_table_addr = self.byte_addr(obj_ptr + self.OBJECT_BYTES - 2)
+        text_len = self.read_byte(prop_table_addr)
+        return prop_table_addr + 2 * text_len + 1
+
+    def get_property_num(self, prop_addr):
+        if self.version <= 3:
+            return self.read_byte(prop_addr) & 0x1f
+        return self.read_byte(prop_addr) & 0x3f
+
+    def get_next_property_addr(self, prop_addr):
+        data_addr = self.get_property_data_addr(prop_addr)
+        size_byte_addr = self.get_property_data_size_byte_addr(prop_addr)
+        data_len = self.get_property_data_length(size_byte_addr)
+        return data_addr + data_len
+
+    def get_property_data_size_byte_addr(self, prop_addr):
+        if self.version >= 4 and self.read_byte(prop_addr) >= 0x80:
+            return prop_addr + 1
+        return prop_addr
+
+    def get_property_data_length(self, size_byte_addr):
+        size_byte = self.read_byte(size_byte_addr)
+        if self.version <= 3:
+            return (size_byte >> 5) + 1
+        if size_byte >= 0x80:
+            byte_count = size_byte & 0x3f
+            if byte_count == 0:
+                byte_count = 64
+            return byte_count
+        return (size_byte >> 6) + 1
+
+    def get_property_data_addr(self, prop_addr):
+        size_byte = self.read_byte(prop_addr)
+        size_byte_len = 1
+        if size_byte == 0:
+            raise InvalidArgumentException('Retrieving data address from end of property list')
+        if self.version >= 4 and size_byte >= 0x80:
+            size_byte_len = 2
+        return prop_addr + size_byte_len
+
+    def get_property_data(self, prop_addr):
+        data_addr = self.get_property_data_addr(prop_addr)
+        size_byte_addr = self.get_property_data_size_byte_addr(prop_addr)
+        size = self.get_property_data_length(size_byte_addr)
+        if size == 1:
+            return self.read_byte(data_addr)
+        elif size == 2:
+            return self.read_word(data_addr)
+        raise Exception("Invalid size for reading property data")
+
+    def set_property_data(self, prop_addr, value):
+        data_addr = self.get_property_data_addr(prop_addr)
+        size_byte_addr = self.get_property_data_size_byte_addr(prop_addr)
+        size = self.get_property_data_length(size_byte_addr)
+        if size == 1:
+            self.write_byte(data_addr, value)
+        elif size == 2:
+            self.write_word(data_addr, value)
+        else:
+            raise Exception("Invalid size for setting property value")
 
     def do_routine(self, call_addr, args, discard_result=False):
         store_varnum = 0
