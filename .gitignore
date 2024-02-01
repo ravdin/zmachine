@@ -3,6 +3,7 @@ __pycache__
 .venv
 *.sav
 *.qzl
+*.txt
 debug.txt
 .DS_Store
 .idea

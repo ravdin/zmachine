@@ -1,10 +1,11 @@
 import sys
-from zmachine import zmachine
-from screen import screen
+from builder import ZMachineBuilder
+
 
 def main():
-    game = zmachine(sys.argv[1])
-    screen(game)
+    builder = ZMachineBuilder(sys.argv[1])
+    builder.start()
+
 
 if __name__ == '__main__':
     main()
