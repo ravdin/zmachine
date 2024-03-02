@@ -1,44 +1,63 @@
-import io
 import curses
-import textwrap
-from utils import sign_uint16
+from event import EventManager, EventArgs
+from stream import ScreenStream
+from constants import *
 
-class screen():
-    def __init__(self, zmachine):
-        self.zmachine = zmachine
-        if self.zmachine.quit:
-            return
+
+class Screen:
+    def __init__(self, version, output_stream: ScreenStream):
         builders = {
-            3: screen.screen_v3_builder,
-            4: screen.screen_v4_builder,
+            3: Screen.ScreenV3Builder,
+            4: Screen.ScreenV4Builder,
         }
-        builder = builders[self.zmachine.version](zmachine)
+        builder = builders[version](output_stream)
         curses.wrapper(builder.build)
 
-    class abstract_screen_builder():
-        def __init__(self, zmachine):
+    class AbstractScreenBuilder:
+        def __init__(self, output_stream: ScreenStream):
+            self.stdscr = None
             self.lower_window = None
             self.upper_window = None
-            self.zmachine = zmachine
-            self.buffer = io.StringIO()
+            self.active_window = None
+            self.height = None
+            self.width = None
             self.output_line_count = 0
+            self.output_stream = output_stream
+            self.event_manager = EventManager()
+            self.register_delegates()
 
         def build(self, stdscr):
+            self.stdscr = stdscr
             height, width = stdscr.getmaxyx()
             self.height = height
             self.width = width
-            self.zmachine.set_print_handler(self.print_handler)
-            self.zmachine.set_input_handler(self.input_handler)
-            self.zmachine.set_split_window_handler(self.split_window)
-            self.zmachine.set_set_flags_handler(self.set_flags_handler)
-            self.zmachine.set_set_window_handler(self.set_window)
-            self.set_flags_handler()
 
-            while not self.zmachine.quit:
-                self.zmachine.run_instruction()
+        def register_delegates(self):
+            self.event_manager.pre_read_input += self.pre_read_input_handler
+            self.event_manager.read_input += self.read_input_handler
+            self.event_manager.set_window += self.set_window_handler
+            self.event_manager.split_window += self.split_window_handler
+            self.event_manager.erase_window += self.erase_window_handler
+            self.event_manager.print_to_active_window += self.print_to_active_window_handler
+            self.event_manager.interpreter_prompt += self.interpreter_prompt_handler
+            self.event_manager.interpreter_input += self.interpreter_input_handler
+            self.event_manager.select_output_stream += self.select_output_stream_handler
+            self.event_manager.sound_effect += self.sound_effect_handler
+            self.event_manager.quit += self.quit_handler
+
+        def quit_handler(self, sender, e: EventArgs):
             self.flush_buffer(self.active_window)
+            curses.cbreak()
             self.active_window.addstr("\n[Press any key to exit.]")
             self.active_window.getch()
+            curses.endwin()
+
+        def sound_effect_handler(self, sender, e: EventArgs):
+            if e.type == 1:
+                curses.beep()
+
+        def split_window_handler(self, sender, e: EventArgs):
+            self.split_window(e.lines)
 
         def split_window(self, lines):
             self.flush_buffer(self.lower_window)
@@ -62,14 +81,37 @@ class screen():
             self.reset_cursor(self.lower_window)
             self.stdscr.noutrefresh()
 
-        def set_window(self, window):
-            if window == 0:
+        def set_window_handler(self, sender, e: EventArgs):
+            window_id = e.window_id
+            if window_id == LOWER_WINDOW:
                 self.lower_window.leaveok(False)
                 self.set_active_window(self.lower_window)
                 self.reset_cursor(self.lower_window)
-            elif window == 1:
+            elif window_id == UPPER_WINDOW:
                 self.lower_window.leaveok(True)
                 self.set_active_window(self.upper_window)
+
+        def erase_window_handler(self, sender, e: EventArgs):
+            window_id = e.window_id
+            self.flush_buffer(self.lower_window)
+            if window_id == -2:
+                self.stdscr.erase()
+                self.output_line_count = 0
+            elif window_id == -1:
+                self.stdscr.erase()
+                self.output_line_count = 0
+                self.split_window(0)
+                self.set_active_window(self.lower_window)
+                self.reset_cursor(self.lower_window)
+            elif window_id == LOWER_WINDOW:
+                self.lower_window.erase()
+                self.reset_cursor(self.lower_window)
+            elif window_id == UPPER_WINDOW:
+                self.upper_window.erase()
+                self.reset_cursor(self.upper_window)
+
+        def select_output_stream_handler(self, sender, e: EventArgs):
+            self.flush_buffer(self.lower_window)
 
         def reset_cursor(self, window):
             if window == self.upper_window:
@@ -81,16 +123,28 @@ class screen():
         def set_active_window(self, window):
             self.active_window = window
 
-        def set_flags_handler(self):
-            pass
-
-        def print_handler(self, text, newline = False):
-            self.buffer.write(text)
+        def print_to_active_window(self, text, newline: bool):
+            self.active_window.addstr(text)
             if newline:
-                self.buffer.write("\n")
+                self.active_window.addstr("\n")
 
-        def input_handler(self, lowercase = True):
+        def print_to_active_window_handler(self, sender, e: EventArgs):
             self.flush_buffer(self.active_window)
+            text, newline = e.text, e.get('newline', False)
+            self.print_to_active_window(text, newline)
+
+        def interpreter_prompt_handler(self, sender, e: EventArgs):
+            self.lower_window.addstr(e.text + "\n")
+
+        def interpreter_input_handler(self, sender, e: EventArgs):
+            lowercase = True
+            if hasattr(e, 'lowercase'):
+                lowercase = e.lowercase
+            if hasattr(e, 'text'):
+                self.lower_window.addstr(e.text)
+            e.response = self.read_keyboard_input(lowercase).strip()
+
+        def read_keyboard_input(self, lowercase=True):
             curses.doupdate()
             curses.echo()
             result = self.active_window.getstr().decode(encoding="utf-8")
@@ -100,21 +154,29 @@ class screen():
             self.output_line_count = 0
             return result
 
+        def pre_read_input_handler(self, sender, event_args: EventArgs):
+            self.output_line_count = 0
+            self.flush_buffer(self.active_window)
+            curses.doupdate()
+
+        def read_input_handler(self, sender, event_args: EventArgs):
+            command = self.read_keyboard_input()
+            event_args.command = command
+            self.event_manager.post_read_input.invoke(self, event_args)
+
         def flush_buffer(self, window):
-            text = self.buffer.getvalue()
-            self.buffer = io.StringIO()
+            text = self.output_stream.flush_buffer()
             win_height = window.getmaxyx()[0]
-            y, x = window.getyx()
             output_lines = self.wrap_lines(text, window)
             for line in output_lines:
                 window.addstr(line)
-                if len(line) > 0 and line[-1] == "\n":
-                    x = 0
+                x = window.getyx()[1]
                 if x == 0:
                     self.output_line_count += 1
                 if self.output_line_count >= win_height - 2:
                     window.addstr('[MORE]')
                     window.refresh()
+                    curses.cbreak()
                     window.getch()
                     window.addstr(win_height - 1, 0, ' ' * 6)
                     window.move(win_height - 1, 0)
@@ -166,10 +228,13 @@ class screen():
                     result += [output_line]
             return result
 
-    class screen_v3_builder(abstract_screen_builder):
+    class ScreenV3Builder(AbstractScreenBuilder):
+        def __init__(self, output_stream: ScreenStream):
+            super().__init__(output_stream)
+            self.event_manager.refresh_status_line += self.refresh_status_line
+
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
-            self.zmachine.set_show_status_handler(self.refresh_status_line)
             self.upper_window = curses.newwin(1, width, 0, 0)
             self.upper_window.attrset(curses.A_REVERSE)
             self.lower_window = curses.newwin(height - 1, width, 1, 0)
@@ -178,87 +243,56 @@ class screen():
             self.set_active_window(self.lower_window)
             super().build(stdscr)
 
-        def set_flags_handler(self):
-            flags1 = self.zmachine.read_byte(0x1)
-            flags1 |= 0x20 # Split screen available.
-            self.zmachine.write_byte(0x1, flags1)
-
-        def input_handler(self, lowercase = True):
-            self.refresh_status_line()
-            return super().input_handler(lowercase)
-
         def split_window(self, lines):
             super().split_window(lines)
             self.upper_window.erase()
 
-        def refresh_status_line(self):
-            location_id = self.zmachine.read_var(0x10)
-            location = self.zmachine.get_object_text(location_id)
-            right_status = self.get_right_status()
+        def refresh_status_line(self, sender, event_args: EventArgs):
             # HACK: curses raises an exception when a character is written
             # to the last character position in the window.
             try:
                 self.upper_window.addstr(0, 0, ' ' * self.width)
-            except:
+            except curses.error:
                 pass
+            location = event_args.location
+            right_status = event_args.right_status
             self.upper_window.addstr(0, 1, location)
             self.upper_window.addstr(0, self.width - len(right_status) - 3, right_status)
             self.upper_window.refresh()
 
-        def get_right_status(self):
-            global1 = self.zmachine.read_var(0x11)
-            global2 = self.zmachine.read_var(0x12)
-            if self.zmachine.flags1 & 0x2 == 0:
-                score = sign_uint16(global1)
-                return f'Score: {score}'.ljust(16, ' ') + f'Moves: {global2}'.ljust(11, ' ')
-            else:
-                meridian = 'AM' if global1 < 12 else 'PM'
-                if global1 == 0:
-                    global1 = 12
-                elif global1 > 12:
-                    global1 -= 12
-                hh = str(global1).rjust(2, ' ')
-                mm = global2
-                return f'Time: {hh}:{mm:02} {meridian}'.ljust(17, ' ')
+    class ScreenV4Builder(AbstractScreenBuilder):
+        def __init__(self, output_stream: ScreenStream):
+            super().__init__(output_stream)
+            self.has_scrolled_after_resize = False
 
-    class screen_v4_builder(abstract_screen_builder):
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
+            self.event_manager.set_screen_dimensions.invoke(self, EventArgs(height=height, width=width))
             self.stdscr = stdscr
             self.upper_window = stdscr.derwin(0, width, 0, 0)
             self.lower_window = stdscr.derwin(height, width, 0, 0)
             self.lower_window.scrollok(True)
             self.lower_window.move(height - 1, 0)
             self.active_window = self.lower_window
-            self.saved_screen = None
-            self.buffered_output = True
-            self.has_scrolled_after_resize = False
-            self.has_buffer = False
-            self.zmachine.set_erase_window_handler(self.erase_window)
-            self.zmachine.set_set_buffer_mode_handler(self.set_buffer_mode)
-            self.zmachine.set_set_cursor_handler(self.set_cursor)
-            self.zmachine.set_set_text_style_handler(self.set_text_style)
-            self.zmachine.set_read_char_handler(self.read_char)
             super().build(stdscr)
 
-        def set_flags_handler(self):
-            self.zmachine.write_byte(0x20, self.height)
-            self.zmachine.write_byte(0x21, self.width)
-            flags1 = self.zmachine.read_byte(0x1)
-            # Boldface and emphasis available.
-            flags1 |= 0xc
-            self.zmachine.write_byte(0x1, flags1)
+        def register_delegates(self):
+            super().register_delegates()
+            self.event_manager.set_buffer_mode += self.set_buffer_mode_handler
+            self.event_manager.set_cursor += self.set_cursor_handler
+            self.event_manager.set_text_style += self.set_text_style_handler
+            self.event_manager.read_char += self.read_char_handler
 
-        def print_handler(self, text, newline = False):
-            if self.active_window == self.lower_window and self.buffered_output:
-                super().print_handler(text, newline)
-                self.has_buffer = True
+        def print_to_active_window(self, text, newline):
+            if self.active_window == self.lower_window:
+                super().print_to_active_window(text, newline)
             else:
                 try:
                     self.active_window.addstr(text)
                     if newline:
                         self.active_window.addstr("\n")
                     self.active_window.noutrefresh()
+                    curses.doupdate()
                 except curses.error:
                     pass
                 self.has_scrolled_after_resize = False
@@ -271,7 +305,7 @@ class screen():
             # the upper window, leaving the reversed text as an overlay.
             # If the upper window is left expanded (e.g. Library Mode in AMFV),
             # then the duplicated lines in the lower window must be erased.
-            if not self.has_scrolled_after_resize and self.has_buffer:
+            if not self.has_scrolled_after_resize and self.output_stream.has_buffer():
                 lower_window_height = self.lower_window.getmaxyx()[0]
                 upper_window_height = self.height - lower_window_height
                 y, x = self.lower_window.getyx()
@@ -284,41 +318,27 @@ class screen():
                 self.lower_window.move(y, x)
                 self.has_scrolled_after_resize = True
             super().flush_buffer(window)
-            self.has_buffer = False
 
-        def read_char(self):
+        def read_char_handler(self, sender, e: EventArgs):
             self.flush_buffer(self.lower_window)
             curses.doupdate()
-            return self.active_window.getch()
-
-        def erase_window(self, num):
-            self.flush_buffer(self.lower_window)
-            if num == -2:
-                self.stdscr.erase()
-                self.output_line_count = 0
-            elif num == -1:
-                self.stdscr.erase()
-                self.output_line_count = 0
-                self.split_window(0)
-            elif num == 0:
-                self.lower_window.erase()
-            elif num == 1:
-                self.upper_window.erase()
+            curses.cbreak()
+            e.char = self.active_window.getch()
 
         def split_window(self, lines):
             super().split_window(lines)
             self.has_scrolled_after_resize = False
 
-        def set_cursor(self, y, x):
+        def set_cursor_handler(self, sender, e: EventArgs):
+            y, x = e.y, e.x
             if self.active_window == self.upper_window:
                 self.active_window.move(y - 1, x - 1)
 
-        def set_buffer_mode(self, mode):
-            if mode == 0:
+        def set_buffer_mode_handler(self, sender, e: EventArgs):
+            if e.mode == 0:
                 self.flush_buffer(self.lower_window)
-            self.buffered_output = mode != 0
 
-        def set_text_style(self, style):
+        def set_text_style_handler(self, sender, e: EventArgs):
             if self.active_window == self.lower_window:
                 self.flush_buffer(self.lower_window)
             self.upper_window.noutrefresh()
@@ -329,7 +349,7 @@ class screen():
                 0x4: curses.A_UNDERLINE
             }
             for k, v in styles.items():
-                if style & k == k:
+                if e.style & k == k:
                     self.active_window.attron(v)
                 else:
                     self.active_window.attroff(v)

@@ -1,19 +1,41 @@
 import random
 import time
-from utils import *
+from typing import Callable, Dict, Any
+from functools import wraps
+from abstract_interpreter import AbstractZMachineInterpreter
+from event import EventArgs
 from error import *
 
 
-def get_opcodes(version):
-    predicate = lambda x: version >= x.min_version and version <= x.max_version
-    versioned = filter(predicate, opcodes.get_all_opcodes())
+def get_opcodes(version) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+    def predicate(opcode: Opcode):
+        return opcode.min_version <= version <= opcode.max_version
+    versioned = filter(predicate, Opcode.get_all_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-class opcodes():
-    def __init__(self, op, opcode, min_version=1, max_version=6):
+def signed_operands(op):
+    @wraps(op)
+    def sign_and_execute(*args):
+        zm, operands = args[0], [sign_uint16(o) for o in args[1:]]
+        return op(zm, *operands)
+    return sign_and_execute
+
+
+def sign_uint16(num):
+    if num >= 0x8000:
+        num = -(~num & 0xffff) - 1
+    return num
+
+
+class Opcode:
+    def __init__(self,
+                 op: Callable[[AbstractZMachineInterpreter, int, ...], Any],
+                 opcode: int,
+                 min_version: int = 1,
+                 max_version: int = 6):
         self.op = op
-        self.opcode = opcode
+        self.opcode: int = opcode
         self.min_version = min_version
         self.max_version = max_version
 
@@ -116,6 +138,7 @@ def op_jg(zm, *operands):
     zm.do_branch(a > b)
 
 
+@signed_operands
 def op_dec_chk(zm, *operands):
     varnum, value = operands
     ref_val = sign_uint16(zm.read_var(varnum)) - 1
@@ -123,6 +146,7 @@ def op_dec_chk(zm, *operands):
     zm.do_branch(ref_val < value)
 
 
+@signed_operands
 def op_inc_chk(zm, *operands):
     varnum, value = operands
     ref_val = sign_uint16(zm.read_var(varnum)) + 1
@@ -132,8 +156,7 @@ def op_inc_chk(zm, *operands):
 
 def op_jin(zm, *operands):
     obj_id, parent_id = operands
-    obj_ptr = zm.lookup_object(obj_id)
-    obj_parent_id = zm.get_object_parent_id(obj_ptr)
+    obj_parent_id = zm.object_table.get_object_parent_id(obj_id)
     zm.do_branch(obj_parent_id == parent_id)
 
 
@@ -159,36 +182,34 @@ def op_test_attr(zm, *operands):
         # There is no object ID of 0, but some Infocom games will test
         # an attribute of the parent of object after it has been
         # removed from the object tree.
-        # Presumably historical interpreters handled it by assuming the attribute
-        # is false.
-        result = zm.get_object_attr_flag(obj_id, attr_num)
+        # Presumably historical interpreters handled it by assuming that attributes
+        # of a null object are false.
+        result = zm.object_table.get_attribute_flag(obj_id, attr_num)
     zm.do_branch(result)
 
 
 def op_set_attr(zm, *operands):
     obj_id, attr_num = operands
-    zm.set_object_attr_flag(obj_id, attr_num, True)
+    zm.object_table.set_attribute_flag(obj_id, attr_num, True)
 
 
 def op_clear_attr(zm, *operands):
     obj_id, attr_num = operands
-    zm.set_object_attr_flag(obj_id, attr_num, False)
+    zm.object_table.set_attribute_flag(obj_id, attr_num, False)
 
 
 def op_store(zm, *operands):
     varnum, value = operands
-    zm.write_var(varnum, value)
+    if varnum == 0:
+        zm.stack_pop()
+        zm.stack_push(value)
+    else:
+        zm.write_var(varnum, value)
 
 
 def op_insert_obj(zm, *operands):
     obj_id, parent_id = operands
-    zm.orphan_object(obj_id)
-    obj_ptr = zm.lookup_object(obj_id)
-    parent_ptr = zm.lookup_object(parent_id)
-    first_child_id = zm.get_object_child_id(parent_ptr)
-    zm.set_object_parent_id(obj_ptr, parent_id)
-    zm.set_object_sibling_id(obj_ptr, first_child_id)
-    zm.set_object_child_id(parent_ptr, obj_id)
+    zm.object_table.insert_object(obj_id, parent_id)
 
 
 def op_loadw(zm, *operands):
@@ -205,34 +226,21 @@ def op_loadb(zm, *operands):
 
 def op_get_prop(zm, *operands):
     obj_id, prop_id = operands
-    prop_ptr = zm.get_property_addr(obj_id, prop_id)
-    if prop_ptr is None:
-        result = zm.get_default_property_data(prop_id)
-    else:
-        result = zm.get_property_data(prop_ptr)
+    result = zm.object_table.get_property_data(obj_id, prop_id)
     zm.do_store(result)
 
 
 def op_get_prop_addr(zm, *operands):
     obj_id, prop_id = operands
-    prop_addr = zm.get_property_addr(obj_id, prop_id)
+    prop_addr = zm.object_table.get_property_addr(obj_id, prop_id)
     if prop_addr is None:
-        prop_data_addr = 0
-    else:
-        prop_data_addr = zm.get_property_data_addr(prop_addr)
-    zm.do_store(prop_data_addr)
+        prop_addr = 0
+    zm.do_store(prop_addr)
 
 
 def op_get_next_prop(zm, *operands):
     obj_id, prop_id = operands
-    if prop_id == 0:
-        prop_ptr = zm.get_first_property_addr(obj_id)
-    else:
-        prop_ptr = zm.get_property_addr(obj_id, prop_id)
-        if prop_ptr is None:
-            raise InvalidArgumentException(f'Object {obj_id} does not have property {prop_id}')
-        prop_ptr = zm.get_next_property_addr(prop_ptr)
-    result = zm.get_property_num(prop_ptr)
+    result = zm.object_table.get_next_property_num(obj_id, prop_id)
     zm.do_store(result)
 
 
@@ -257,13 +265,21 @@ def op_mul(zm, *operands):
 @signed_operands
 def op_div(zm, *operands):
     a, b = operands
-    zm.do_store(a // b)
+    result = a // b
+    if result < 0:
+        result += 1
+    zm.do_store(result)
 
 
 @signed_operands
 def op_mod(zm, *operands):
     a, b = operands
-    zm.do_store(a % b)
+    result = a % b
+    # Python's modulo works differently from the C compiler for negative numbers.
+    # This interpreter will be consistent with what historical interpreters likely would have done.
+    if a < 0 < b or a > 0 > b:
+        result -= b
+    zm.do_store(result)
 
 
 def op_call_2s(zm, *operands):
@@ -275,31 +291,30 @@ def op_jz(zm, *operands):
 
 
 def op_get_sibling(zm, *operands):
-    obj_ptr = zm.lookup_object(operands[0])
-    sibling_id = zm.get_object_sibling_id(obj_ptr)
+    obj_id = operands[0]
+    sibling_id = zm.object_table.get_object_sibling_id(obj_id)
     zm.do_store(sibling_id)
     zm.do_branch(sibling_id)
 
 
 def op_get_child(zm, *operands):
-    obj_ptr = zm.lookup_object(operands[0])
-    child_id = zm.get_object_child_id(obj_ptr)
+    obj_id = operands[0]
+    child_id = zm.object_table.get_object_child_id(obj_id)
     zm.do_store(child_id)
     zm.do_branch(child_id)
 
 
 def op_get_parent(zm, *operands):
     obj_id = operands[0]
-    obj_ptr = zm.lookup_object(obj_id)
-    parent_id = zm.get_object_parent_id(obj_ptr)
+    parent_id = zm.object_table.get_object_parent_id(obj_id)
     zm.do_store(parent_id)
 
 
 def op_get_prop_len(zm, *operands):
-    data_ptr = operands[0]
+    prop_addr = operands[0]
     result = 0
-    if data_ptr != 0:
-        result = zm.get_property_data_length(data_ptr - 1)
+    if prop_addr != 0:
+        result = zm.object_table.get_property_data_len(prop_addr)
     zm.do_store(result)
 
 
@@ -317,8 +332,7 @@ def op_dec(zm, *operands):
 
 def op_print_addr(zm, *operands):
     ptr = operands[0]
-    encoded = zm.read_encoded_zscii(ptr)
-    zm.do_print_encoded(encoded)
+    zm.print_from_addr(ptr)
 
 
 def op_call_1s(zm, *operands):
@@ -328,7 +342,7 @@ def op_call_1s(zm, *operands):
 def op_print_obj(zm, *operands):
     obj_id = operands[0]
     obj_text = zm.get_object_text(obj_id)
-    zm.do_print(obj_text)
+    zm.write_to_output_streams(obj_text)
 
 
 def op_ret(zm, *operands):
@@ -336,23 +350,25 @@ def op_ret(zm, *operands):
 
 
 def op_remove_obj(zm, *operands):
-    zm.orphan_object(operands[0])
+    zm.object_table.orphan_object(operands[0])
 
 
 @signed_operands
 def op_jump(zm, *operands):
-    zm.pc += operands[0] - 2
+    zm.do_jump(operands[0])
 
 
 def op_print_paddr(zm, *operands):
     addr = zm.unpack_addr(operands[0])
-    encoded = zm.read_encoded_zscii(addr)
-    zm.do_print_encoded(encoded)
+    zm.print_from_addr(addr)
 
 
 def op_load(zm, *operands):
     varnum = operands[0]
-    ref_val = zm.read_var(varnum)
+    if varnum == 0:
+        ref_val = zm.stack_peek()
+    else:
+        ref_val = zm.read_var(varnum)
     zm.do_store(ref_val)
 
 
@@ -370,13 +386,11 @@ def op_rfalse(zm, *operands):
 
 
 def op_print(zm, *operands):
-    encoded = zm.read_encoded_zscii_from_pc()
-    zm.do_print_encoded(encoded)
+    zm.print_from_pc()
 
 
 def op_print_ret(zm, *operands):
-    encoded = zm.read_encoded_zscii_from_pc()
-    zm.do_print_encoded(encoded, True)
+    zm.print_from_pc(True)
     zm.do_return(True)
 
 
@@ -417,11 +431,11 @@ def op_pop(zm, *operands):
 
 
 def op_quit(zm, *operands):
-    zm.quit = True
+    zm.do_quit()
 
 
 def op_new_line(zm, *operands):
-    zm.do_print('', True)
+    zm.write_to_output_streams('', True)
 
 
 def op_show_status(zm, *operands):
@@ -453,10 +467,7 @@ def op_storeb(zm, *operands):
 
 def op_put_prop(zm, *operands):
     obj_id, prop_id, value = operands
-    prop_ptr = zm.get_property_addr(obj_id, prop_id)
-    if prop_ptr is None:
-        raise InvalidArgumentException(f"Property {prop_id} does not exist in object {obj_id}")
-    zm.set_property_data(prop_ptr, value)
+    zm.object_table.set_property_data(obj_id, prop_id, value)
 
 
 def op_read(zm, *operands):
@@ -467,18 +478,20 @@ def op_print_char(zm, *operands):
     zscii_code = operands[0]
     if zscii_code == 0:
         return
-    elif zscii_code < 32 or zscii_code > 126:
+    # HACK: Treat the tab character like a space.
+    if zscii_code == 9:
+        zscii_code = 32
+    if zscii_code < 32 or zscii_code > 126:
         if zscii_code == 10:
             zscii_code = 13
         if zscii_code != 13 and not (155 <= zscii_code <= 251):
             raise ZSCIIException("Invalid ZSCII code '{0}'".format(zscii_code))
-    else:
-        zm.do_print(chr(zscii_code))
+    zm.write_to_output_streams(chr(zscii_code))
 
 
 @signed_operands
 def op_print_num(zm, *operands):
-    zm.do_print(str(operands[0]))
+    zm.write_to_output_streams(str(operands[0]))
 
 
 @signed_operands
@@ -499,70 +512,57 @@ def op_push(zm, *operands):
 
 
 def op_pull(zm, *operands):
+    varnum = operands[0]
     value = zm.stack_pop()
-    zm.write_var(operands[0], value)
+    if varnum == 0:
+        zm.stack_pop()
+        zm.stack_push(value)
+    else:
+        zm.write_var(varnum, value)
 
 
 def op_split_window(zm, *operands):
-    zm.split_window_handler(operands[0])
+    zm.event_manager.split_window.invoke(zm, EventArgs(lines=operands[0]))
 
 
 def op_set_window(zm, *operands):
-    zm.active_window = operands[0]
-    zm.set_window_handler(operands[0])
+    zm.event_manager.set_window.invoke(zm, EventArgs(window_id=operands[0]))
 
 
 @signed_operands
 def op_erase_window(zm, *operands):
-    zm.erase_window_handler(operands[0])
+    zm.event_manager.erase_window.invoke(zm, EventArgs(window_id=operands[0]))
 
 
 def op_set_cursor(zm, *operands):
     y, x = operands
-    zm.set_cursor_handler(y, x)
+    zm.event_manager.set_cursor.invoke(zm, EventArgs(y=y, x=x))
 
 
 def op_set_text_style(zm, *operands):
-    zm.set_text_style_handler(operands[0])
+    zm.event_manager.set_text_style.invoke(zm, EventArgs(style=operands[0]))
 
 
 def op_buffer_mode(zm, *operands):
-    zm.set_buffer_mode_handler(operands[0])
+    zm.event_manager.set_buffer_mode.invoke(zm, EventArgs(mode=operands[0]))
 
 
 def op_output_stream(zm, *operands):
-    stream = sign_uint16(operands[0])
-    if stream == 0:
-        pass
-    elif stream == 1:
-        zm.output_streams |= 0x1
-    elif stream == -1:
-        zm.output_streams &= 0xe
-    elif stream == 2:
-        zm.output_streams |= 0x2
-        zm.set_scripting_enabled(True)
-    elif stream == -2:
-        zm.output_streams &= 0xd
-        zm.set_scripting_enabled(False)
-    elif stream == 3:
-        if zm.output_streams & 0x4 == 0x4:
-            raise  # TODO: This should open another stream.
-        zm.output_streams |= 0x4
-        zm.memory_stream.open(operands[1])
-    elif stream == -3:
-        zm.output_streams &= 0xb
-        zm.memory_stream.close()
-    else:
-        raise Exception(f"Op not supported: {operands[0]}")
+    stream_id = sign_uint16(operands[0])
+    event_args = EventArgs(stream_id=stream_id)
+    if stream_id == 3:
+        event_args.table_addr = operands[1]
+    zm.event_manager.select_output_stream.invoke(zm, event_args)
 
 
-# TODO: Treating this as a nop.
 def op_sound_effect(zm, *operands):
-    pass
+    zm.event_manager.sound_effect.invoke(zm, EventArgs(type=operands[0]))
 
 
 def op_read_char(zm, *operands):
-    char = zm.read_char_handler()
+    event_args = EventArgs()
+    zm.event_manager.read_char.invoke(zm, event_args)
+    char = event_args.char
     if char == 10:
         char = 13
     zm.do_store(char)
