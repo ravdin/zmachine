@@ -61,23 +61,14 @@ class Screen:
 
         def split_window(self, lines):
             self.flush_buffer(self.lower_window)
-            prev_lines = self.height - self.lower_window.getmaxyx()[0]
             if lines == 0:
                 self.upper_window.erase()
+                self.lower_window.resize(self.height, self.width)
             else:
-                ypos = self.upper_window.getyx()[0]
-                if ypos >= lines:
-                    self.reset_cursor(self.upper_window)
-                self.upper_window.resize(lines, self.width)
-            if lines < prev_lines:
-                self.lower_window.mvwin(lines, 0)
                 self.lower_window.resize(self.height - lines, self.width)
-            else:
-                if self.height == lines:
-                    self.lower_window.erase()
-                else:
-                    self.lower_window.resize(self.height - lines, self.width)
-                    self.lower_window.mvwin(lines, 0)
+                self.lower_window.mvwin(lines, 0)
+                self.upper_window.resize(lines, self.width)
+            self.reset_cursor(self.upper_window)
             self.reset_cursor(self.lower_window)
             self.stdscr.noutrefresh()
 
@@ -102,13 +93,13 @@ class Screen:
                 self.output_line_count = 0
                 self.split_window(0)
                 self.set_active_window(self.lower_window)
-                self.reset_cursor(self.lower_window)
             elif window_id == LOWER_WINDOW:
                 self.lower_window.erase()
                 self.reset_cursor(self.lower_window)
             elif window_id == UPPER_WINDOW:
                 self.upper_window.erase()
                 self.reset_cursor(self.upper_window)
+            self.stdscr.noutrefresh()
 
         def select_output_stream_handler(self, sender, e: EventArgs):
             self.flush_buffer(self.lower_window)
@@ -264,6 +255,7 @@ class Screen:
         def __init__(self, output_stream: ScreenStream):
             super().__init__(output_stream)
             self.has_scrolled_after_resize = False
+            self.scroll_line_count = 0
 
         def build(self, stdscr):
             height, width = stdscr.getmaxyx()
@@ -309,7 +301,7 @@ class Screen:
                 lower_window_height = self.lower_window.getmaxyx()[0]
                 upper_window_height = self.height - lower_window_height
                 y, x = self.lower_window.getyx()
-                self.lower_window.addstr("\n")
+                self.lower_window.scroll(1)
                 self.lower_window.move(0, 0)
                 self.lower_window.insertln()
                 for i in range(min(upper_window_height, lower_window_height)):
@@ -325,7 +317,15 @@ class Screen:
             curses.cbreak()
             e.char = self.active_window.getch()
 
+        def pre_read_input_handler(self, sender, event_args: EventArgs):
+            if self.scroll_line_count > 0:
+                self.lower_window.scroll(self.scroll_line_count)
+                self.scroll_line_count = 0
+            super().pre_read_input_handler(sender, event_args)
+
         def split_window(self, lines):
+            prev_lines = self.upper_window.getmaxyx()[0]
+            self.scroll_line_count = max(0, lines - prev_lines)
             super().split_window(lines)
             self.has_scrolled_after_resize = False
 
