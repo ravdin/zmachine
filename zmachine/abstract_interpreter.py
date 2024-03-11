@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 from event import EventManager
 from object_table import ObjectTable
+from config import ROUTINE_TYPE_STORE
 
 
 class AbstractZMachineInterpreter(ABC):
@@ -61,11 +62,15 @@ class AbstractZMachineInterpreter(ABC):
         pass
 
     @abstractmethod
-    def do_routine(self, call_addr: int, args: Tuple[int], discard_result: bool = False):
+    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = ROUTINE_TYPE_STORE):
         pass
 
     @abstractmethod
     def do_return(self, retval: int):
+        pass
+
+    @abstractmethod
+    def get_arg_count(self) -> int:
         pass
 
     @abstractmethod
@@ -78,6 +83,14 @@ class AbstractZMachineInterpreter(ABC):
 
     @abstractmethod
     def do_restore(self) -> bool:
+        pass
+
+    @abstractmethod
+    def do_save_undo(self):
+        pass
+
+    @abstractmethod
+    def do_restore_undo(self):
         pass
 
     @abstractmethod
@@ -120,9 +133,25 @@ class AbstractZMachineInterpreter(ABC):
     def print_from_addr(self, addr: int, newline: bool = False):
         pass
 
+    @abstractmethod
+    def do_print_table(self, addr, width, height, skip):
+        pass
+
     def write_to_output_streams(self, text: str, newline: bool = False):
         pass
 
     @abstractmethod
-    def do_read(self, text_buffer: int, parser_buffer: int):
+    def do_read(self, text_buffer_addr: int, parse_buffer_addr: int, time: int = 0, routine: int = 0):
+        pass
+
+    @abstractmethod
+    def do_read_char(self, time: int = 0, routine: int = 0):
+        pass
+
+    @abstractmethod
+    def do_tokenize(self, text_addr: int, parse_buffer: int, dictionary_addr: int = 0, flag: int = 0):
+        pass
+
+    @abstractmethod
+    def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
         pass

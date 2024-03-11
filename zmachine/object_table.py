@@ -1,12 +1,13 @@
 from memory import MemoryMap
 from error import *
+from config import *
 
 
 class ObjectTable:
     def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
-        self.version = memory_map.version
-        self.OBJECT_HEADER = memory_map.object_header
+        self.version = CONFIG[VERSION_NUMBER_KEY]
+        self.OBJECT_TABLE = CONFIG[OBJECT_TABLE_KEY]
         self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
         self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
@@ -33,9 +34,16 @@ class ObjectTable:
     def get_obj_addr(self, obj_id):
         if obj_id <= 0 or obj_id > self.MAX_OBJECTS:
             raise InvalidMemoryException(f"Object ID '{obj_id}' out of range")
-        return self.OBJECT_HEADER + \
+        obj_addr = self.OBJECT_TABLE + \
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
+        # HACK: Beyond Zork was shipped with a bug where the dictionary entry for an object
+        # was encoded instead of the object ID. This would put the object address outside of the
+        # bounds of the file. The official interpreter would return 0 in this case, which
+        # accidentally works.
+        if obj_addr > CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]:
+            obj_addr = 0
+        return obj_addr
 
     def get_attribute_flag(self, obj_id, attr_num) -> bool:
         if attr_num < 0 or attr_num >= self.ATTRIBUTE_FLAGS:
@@ -138,7 +146,7 @@ class ObjectTable:
     def get_default_property_data(self, prop_id):
         if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
             raise InvalidArgumentException(f"property id: {prop_id}")
-        return self.read_word(self.OBJECT_HEADER + (prop_id - 1) * 2)
+        return self.read_word(self.OBJECT_TABLE + (prop_id - 1) * 2)
 
     def get_property_num(self, prop_addr):
         size_byte = self.read_byte(prop_addr - 1)

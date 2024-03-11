@@ -2,12 +2,10 @@ from screen_test import ScreenTest
 
 
 def main():
-    tester = ScreenTest(4)
+    version = 4
+    tester = ScreenTest(version)
     try:
-        tester.test_split_window()
-        tester.test_overlay()
-        tester.test_menu()
-        tester.test_erase_window()
+        tester.run()
     except Exception as e:
         print(f"{e.__str__()}")
     finally:

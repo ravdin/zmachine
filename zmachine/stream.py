@@ -1,14 +1,14 @@
 from memory import MemoryMap
 from event import EventManager, EventArgs
-from transcript import TranscriptUtils
 from error import *
-from constants import *
+from config import *
+import os
 
 
 class OutputStreamManager:
-    def __init__(self, memory_map: MemoryMap, transcript_utils: TranscriptUtils):
+    def __init__(self, memory_map: MemoryMap):
         self.screen_stream = ScreenStream()
-        self.transcript_stream = TranscriptStream(memory_map, transcript_utils)
+        self.transcript_stream = TranscriptStream(memory_map)
         self.memory_stream = MemoryStream(memory_map)
         self.event_manager = EventManager()
         self.event_manager.write_to_streams += self.write_to_streams_handler
@@ -108,21 +108,22 @@ class ScreenStream(OutputStream):
 class TranscriptStream(OutputStream):
     _BUFFER_LENGTH = 1024
 
-    def __init__(self, memory_map: MemoryMap, transcript_utils: TranscriptUtils):
+    def __init__(self, memory_map: MemoryMap):
         super().__init__()
         self.buffer = ['\0'] * self._BUFFER_LENGTH
         self.buffer_ptr = 0
         self.script_full_path = None
         self.script_file_mode = 'w'
+        self.transcript_full_path = None
         self.memory_map = memory_map
-        self.transcript_utils = transcript_utils
         self.event_manager.pre_read_input += self.pre_read_input_handler
         self.event_manager.post_read_input += self.post_read_input_handler
+        self.event_manager.quit += self.quit_handler
 
     def open(self, **kwargs):
         super().open(**kwargs)
         if self.script_full_path is None:
-            self.script_full_path = self.transcript_utils.prompt_transcript_file()
+            self.script_full_path = self.prompt_transcript_file()
         self.memory_map.transcript_active_flag = True
 
     def write(self, text: str, newline: bool):
@@ -130,7 +131,7 @@ class TranscriptStream(OutputStream):
         if not self.is_active or self.active_window != LOWER_WINDOW:
             return
         if self.script_full_path is None:
-            self.script_full_path = self.transcript_utils.prompt_transcript_file()
+            self.script_full_path = self.prompt_transcript_file()
         text_len = len(text)
         while self.buffer_ptr + text_len + 1 >= len(self.buffer):
             self.buffer += ['\0'] * self._BUFFER_LENGTH
@@ -146,8 +147,7 @@ class TranscriptStream(OutputStream):
         super().close()
         self.memory_map.transcript_active_flag = False
 
-    def pre_read_input_handler(self, sender, e: EventArgs):
-        # Write all output in the buffer when with the command prompt.
+    def flush_buffer(self):
         # File output is not word wrapped.
         if self.buffer_ptr == 0:
             return
@@ -158,16 +158,48 @@ class TranscriptStream(OutputStream):
             self.script_file_mode = 'a'
         self.buffer_ptr = 0
 
+    def prompt_transcript_file(self) -> str:
+        # This function should not be called more than once in a game session.
+        if self.transcript_full_path is None:
+            game_file = CONFIG[GAME_FILE_KEY]
+            filepath = os.path.dirname(game_file)
+            filename = os.path.basename(game_file)
+            base_filename = os.path.splitext(filename)[0]
+            default_transcript_file = f'{base_filename}.txt'
+            self.interpreter_prompt('Enter a file name.')
+            script_file = self.interpreter_input(f'Default is "{default_transcript_file}": ')
+            if script_file == '':
+                script_file = default_transcript_file
+            # If the file already exists and it's a new session, the transcript file will be overwritten.
+            self.transcript_full_path = os.path.join(filepath, script_file)
+        return self.transcript_full_path
+
+    def interpreter_prompt(self, text):
+        self.event_manager.interpreter_prompt.invoke(self, EventArgs(text=text))
+
+    def interpreter_input(self, text):
+        event_args = EventArgs(text=text)
+        self.event_manager.interpreter_input.invoke(self, event_args)
+        return event_args.response
+
+    def pre_read_input_handler(self, sender, e: EventArgs):
+        # Write all output in the buffer when with the command prompt.
+        self.flush_buffer()
+
     def post_read_input_handler(self, sender, e: EventArgs):
         self.write(e.command, True)
+
+    def quit_handler(self, sender, e: EventArgs):
+        self.flush_buffer()
 
 
 class MemoryStream(OutputStream):
     def __init__(self, memory_map: MemoryMap):
         super().__init__()
+        self.BUFFER_LEN = 256
         self.memory_map = memory_map
         self.table_stack = [(0, 0)] * 16
-        self.buffer = [0] * 256
+        self.buffer = [0] * self.BUFFER_LEN
         self.buffer_ptr = 0
         self.stack_ptr = 0
 
@@ -180,6 +212,9 @@ class MemoryStream(OutputStream):
         self.stack_ptr += 1
 
     def write(self, text: str, newline: bool):
+        # Add to the output buffer if necessary.
+        if self.buffer_ptr + len(text) >= len(self.buffer):
+            self.buffer += [0] * self.BUFFER_LEN
         for c in text:
             zscii_code = ord(c)
             if zscii_code == 10:

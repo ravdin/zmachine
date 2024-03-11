@@ -3,6 +3,7 @@ import time
 from typing import Callable, Dict, Any
 from functools import wraps
 from abstract_interpreter import AbstractZMachineInterpreter
+from config import ROUTINE_TYPE_DISCARD
 from event import EventArgs
 from error import *
 
@@ -11,6 +12,13 @@ def get_opcodes(version) -> Dict[int, Callable[[AbstractZMachineInterpreter, int
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_all_opcodes())
+    return {item.opcode: item.op for item in versioned}
+
+
+def get_extended_opcodes(version) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+    def predicate(opcode: Opcode):
+        return opcode.min_version <= version <= opcode.max_version
+    versioned = filter(predicate, Opcode.get_extended_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
@@ -67,6 +75,8 @@ class Opcode:
             cls(op_div, 23),
             cls(op_mod, 24),
             cls(op_call_2s, 25, 4),
+            cls(op_call_vn, 26, 5),
+            cls(op_set_color, 27, 5),
             cls(op_jz, 128),
             cls(op_get_sibling, 129),
             cls(op_get_child, 130),
@@ -82,14 +92,15 @@ class Opcode:
             cls(op_jump, 140),
             cls(op_print_paddr, 141),
             cls(op_load, 142),
-            cls(op_not, 143),
+            cls(op_not, 143, max_version=4),
+            cls(op_call_1n, 143, 5),
             cls(op_rtrue, 176),
             cls(op_rfalse, 177),
             cls(op_print, 178),
             cls(op_print_ret, 179),
             cls(op_nop, 180),
-            cls(op_save, 181),
-            cls(op_restore, 182),
+            cls(op_save, 181, max_version=4),
+            cls(op_restore, 182, max_version=4),
             cls(op_restart, 183),
             cls(op_ret_popped, 184),
             cls(op_pop, 185),
@@ -97,6 +108,7 @@ class Opcode:
             cls(op_new_line, 187),
             cls(op_show_status, 188, 3),
             cls(op_verify, 189, 3),
+            cls(op_piracy, 191, 5),
             cls(op_call, 224),
             cls(op_storew, 225),
             cls(op_storeb, 226),
@@ -109,7 +121,8 @@ class Opcode:
             cls(op_pull, 233),
             cls(op_split_window, 234, 3),
             cls(op_set_window, 235, 3),
-            cls(op_call, 236, 4),
+            cls(op_call, 236, 4, 5),
+            cls(op_call_vs, 236, 5),
             cls(op_erase_window, 237, 4),
             cls(op_set_cursor, 239, 4),
             cls(op_set_text_style, 241, 4),
@@ -117,7 +130,27 @@ class Opcode:
             cls(op_output_stream, 243, 3),
             cls(op_sound_effect, 245),
             cls(op_read_char, 246, 4),
-            cls(op_scan_table, 247, 4)
+            cls(op_scan_table, 247, 4),
+            cls(op_not, 248, 5),
+            cls(op_call_vn, 249, 5),
+            cls(op_call_vn2, 250, 5),
+            cls(op_tokenize, 251, 5),
+            cls(op_encode_text, 252, 5),
+            cls(op_copy_table, 253, 5),
+            cls(op_print_table, 254, 5),
+            cls(op_check_arg_count, 255, 5)
+        ]
+
+    @classmethod
+    def get_extended_opcodes(cls):
+        return [
+            cls(op_save, 0, 5),
+            cls(op_restore, 1, 5),
+            cls(op_log_shift, 2, 5),
+            cls(op_art_shift, 3, 5),
+            cls(op_set_font, 4, 5),
+            cls(op_save_undo, 9, 5),
+            cls(op_restore_undo, 10, 5)
         ]
 
 
@@ -299,7 +332,9 @@ def op_get_sibling(zm, *operands):
 
 def op_get_child(zm, *operands):
     obj_id = operands[0]
-    child_id = zm.object_table.get_object_child_id(obj_id)
+    child_id = 0
+    if obj_id != 0:
+        child_id = zm.object_table.get_object_child_id(obj_id)
     zm.do_store(child_id)
     zm.do_branch(child_id)
 
@@ -377,12 +412,16 @@ def op_not(zm, *operands):
     zm.do_store(val)
 
 
+def op_call_1n(zm, *operands):
+    op_call_vn(zm, *operands)
+
+
 def op_rtrue(zm, *operands):
-    zm.do_return(True)
+    zm.do_return(1)
 
 
 def op_rfalse(zm, *operands):
-    zm.do_return(False)
+    zm.do_return(0)
 
 
 def op_print(zm, *operands):
@@ -391,7 +430,7 @@ def op_print(zm, *operands):
 
 def op_print_ret(zm, *operands):
     zm.print_from_pc(True)
-    zm.do_return(True)
+    zm.do_return(1)
 
 
 def op_nop(zm, *operands):
@@ -446,6 +485,12 @@ def op_verify(zm, *operands):
     zm.do_branch(zm.do_verify())
 
 
+def op_piracy(zm, *operands):
+    # Branch if the interpreter believes the game bytes to be genuine.
+    # This interpreter is unconditionally gullible.
+    zm.do_branch(True)
+
+
 def op_call(zm, *operands):
     if len(operands) == 0 or operands[0] == 0:
         # Legal state, return 0
@@ -453,6 +498,10 @@ def op_call(zm, *operands):
         return
     call_addr, args = zm.unpack_addr(operands[0]), operands[1:]
     zm.do_routine(call_addr, args)
+
+
+def op_call_vs(zm, *operands):
+    op_call(zm, *operands)
 
 
 def op_storew(zm, *operands):
@@ -560,21 +609,107 @@ def op_sound_effect(zm, *operands):
 
 
 def op_read_char(zm, *operands):
-    event_args = EventArgs()
-    zm.event_manager.read_char.invoke(zm, event_args)
-    char = event_args.char
-    if char == 10:
-        char = 13
-    zm.do_store(char)
+    zm.do_read_char(*operands[1:])
 
 
 def op_scan_table(zm, *operands):
-    word, addr, length = operands
+    word, addr, length = operands[:3]
+    form = 0x82 if len(operands) < 4 else operands[3]
+    reader = zm.read_word if form >= 0x80 else zm.read_byte
+    field_len = form & 0x7f
     result = 0
-    for i in range(length):
-        if zm.read_word(addr) == word:
+    for _ in range(length):
+        val = reader(addr)
+        if val == word:
             result = addr
             break
-        addr += 2
+        addr += field_len
     zm.do_store(result)
     zm.do_branch(result)
+
+
+def op_call_vn(zm, *operands):
+    if len(operands) == 0 or operands[0] == 0:
+        return
+    call_addr, args = zm.unpack_addr(operands[0]), operands[1:]
+    zm.do_routine(call_addr, args, ROUTINE_TYPE_DISCARD)
+
+
+def op_set_color(zm, *operands):
+    event_args = EventArgs(foreground_color=operands[0], background_color=operands[1])
+    zm.event_manager.set_color.invoke(zm, event_args)
+
+
+def op_call_vn2(zm, *operands):
+    op_call_vn(zm, *operands)
+
+
+def op_tokenize(zm, *operands):
+    zm.do_tokenize(*operands)
+
+
+def op_encode_text(zm, *operands):
+    zm.do_encode_text(*operands)
+
+
+def op_check_arg_count(zm, *operands):
+    argument_number = operands[0]
+    zm.do_branch(argument_number <= zm.get_arg_count())
+
+
+def op_copy_table(zm, *operands):
+    first, second, size = operands
+    size = sign_uint16(size)
+    if second == 0:
+        for i in range(size):
+            zm.write_byte(first + i, 0)
+    else:
+        if size > 0 and first < second < first + size:
+            iterator = range(size - 1, -1, -1)
+        else:
+            iterator = range(abs(size))
+        for i in iterator:
+            val = zm.read_byte(first + i)
+            zm.write_byte(second + i, val)
+
+
+def op_print_table(zm, *operands):
+    addr, width = operands[0:2]
+    height = 1 if len(operands) < 3 else operands[2]
+    skip = 0 if len(operands) < 4 else operands[3]
+    zm.do_print_table(addr, width, height, skip)
+
+
+# Extended opcodes
+
+def op_log_shift(zm, *operands):
+    number, places = operands
+    places = sign_uint16(places)
+    if places > 0:
+        number = sign_uint16(number) << places
+    else:
+        number >>= -places
+    zm.do_store(number)
+
+
+@signed_operands
+def op_art_shift(zm, *operands):
+    number, places = operands
+    if places > 0:
+        number <<= places
+    else:
+        number >>= -places
+    zm.do_store(number)
+
+
+def op_set_font(zm, *operands):
+    # Curses doesn't have different fonts.
+    zm.do_store(0)
+
+
+def op_save_undo(zm, *operands):
+    zm.do_save_undo()
+
+
+def op_restore_undo(zm, *operands):
+    zm.do_restore_undo()

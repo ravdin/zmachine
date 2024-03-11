@@ -1,54 +1,72 @@
 from error import *
+from config import *
 from event import EventManager, EventArgs
+from config import *
 
 
 class MemoryMap:
     def __init__(self, data: bytes):
-        self.memory_map = bytearray(data)
+        self._memory_map = bytearray(data)
         self.event_manager = EventManager()
-        self.version = self.read_byte(0)
-        self.release_number = self.memory_map[0x2:0x4]
-        self.high_mem_address = self.byte_addr(0x4)
-        self.initial_pc = self.byte_addr(0x6)
-        self.dictionary_header = self.byte_addr(0x8)
-        self.object_header = self.byte_addr(0xa)
-        self.global_vars = self.byte_addr(0xc)
-        self.static_mem_ptr = self.byte_addr(0xe)
-        self.serial_number = self.memory_map[0x12:0x18]
-        self.abbreviation_table = self.byte_addr(0x18)
-        self.file_len = self.read_word(0x1a) << (1 if self.version <= 3 else 2)
-        self.checksum = self.read_word(0x1c)
-        if self.version <= 3:
+        self._version = self._memory_map[0]
+        self.set_config()
+        if self._version <= 3:
             # Split screen available.
             self.flags1_mask = 0x20
-        else:
+        if self._version >= 4:
             # Bold, italic, and fixed width font available.
-            self.flags1_mask = 0x1c
-        self.flags1_mask = 0x20 if self.version <= 3 else 0x1c
-        self.set_screen_flags()
-        # Set the interpreter number to 1.1
-        self.write_word(0x32, 0x101)
-        self.set_event_handlers()
+            # Timed input available.
+            self.flags1_mask = 0x9c
+        if self._version == 5:
+            # Colors available.
+            self.flags1_mask |= 1
+        self.register_delegates()
 
-    def set_event_handlers(self):
+    def set_config(self):
+        CONFIG[VERSION_NUMBER_KEY] = self._version
+        CONFIG[RELEASE_NUMBER_KEY] = self._memory_map[0x2:0x4]
+        CONFIG[HIGH_MEMORY_BASE_ADDR_KEY] = self.byte_addr(0x4)
+        CONFIG[INITIAL_PC_KEY] = self.byte_addr(0x6)
+        CONFIG[DICTIONARY_TABLE_KEY] = self.byte_addr(0x8)
+        CONFIG[OBJECT_TABLE_KEY] = self.byte_addr(0xa)
+        CONFIG[GLOBAL_VARS_TABLE_KEY] = self.byte_addr(0xc)
+        CONFIG[STATIC_MEMORY_BASE_ADDR_KEY] = self.byte_addr(0xe)
+        CONFIG[SERIAL_NUMBER_KEY] = self._memory_map[0x12:0x18]
+        CONFIG[ABBREVIATION_TABLE_KEY] = self.byte_addr(0x18)
+        CONFIG[FILE_LENGTH_KEY] = self.read_word(0x1a) << (1 if self._version <= 3 else 2)
+        CONFIG[CHECKSUM_KEY] = self.read_word(0x1c)
+        if self._version >= 5:
+            self.get_interrupt_zchars(CONFIG[INTERRUPT_ZCHARS_KEY])
+
+    def register_delegates(self):
         event_manager = EventManager()
-        event_manager.set_screen_dimensions += self.set_screen_dimensions
+        event_manager.post_init += self.post_init_handler
+
+    def post_init_handler(self, sender, e: EventArgs):
+        self.set_screen_flags()
+        self.write_word(0x1e, INTERPRETER_NUMBER)
+        self.write_word(0x32, INTERPRETER_REVISION)
+        self.write_byte(0x20, CONFIG[SCREEN_HEIGHT_KEY])
+        self.write_byte(0x21, CONFIG[SCREEN_WIDTH_KEY])
+        if self._version == 5:
+            self.write_word(0x22, CONFIG[SCREEN_WIDTH_KEY])
+            self.write_word(0x24, CONFIG[SCREEN_HEIGHT_KEY])
+            self.write_byte(0x26, 1)
+            self.write_byte(0x27, 1)
 
     def __getitem__(self, item):
         if isinstance(item, slice):
-            return self.memory_map[item.start:item.stop:item.step]
+            return self._memory_map[item.start:item.stop:item.step]
         elif isinstance(item, int):
-            return self.memory_map[item]
-        else:
-            raise Exception('Invalid type for array index')
+            return self._memory_map[item]
+        raise Exception('Invalid type for array index')
 
     def __setitem__(self, key, value):
         if isinstance(key, slice):
-            self.memory_map[key.start:key.stop:key.step] = value
+            self._memory_map[key.start:key.stop:key.step] = value
         elif isinstance(key, int):
-            self.memory_map[key] = value
-        else:
-            raise Exception('Invalid type for array index')
+            self._memory_map[key] = value
+        raise Exception('Invalid type for array index')
 
     def byte_addr(self, ptr):
         return self.read_word(ptr)
@@ -57,49 +75,37 @@ class MemoryMap:
         return self.read_word(ptr) << 1
 
     def unpack_addr(self, packed_addr):
-        shift = 1 if self.version <= 3 else 2
+        shift = 1 if self._version <= 3 else 2
         return packed_addr << shift
 
     def read_byte(self, addr):
-        return self[addr]
+        return self._memory_map[addr]
 
     def read_word(self, addr):
-        return self[addr] << 8 | self[addr + 1]
-
-    def read_dword(self, addr):
-        result = 0
-        for i in range(4):
-            result <<= 8
-            result |= self[addr + i]
-        return result
+        return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
     def write_byte(self, addr, val):
-        if addr >= self.static_mem_ptr:
-            raise IllegalWriteException(f"{addr:x}")
-        self[addr] = val & 0xff
+        if addr >= CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]:
+            raise IllegalWriteException(addr)
+        self._memory_map[addr] = val & 0xff
 
     def write_word(self, addr, val):
-        if addr + 1 >= self.static_mem_ptr:
-            raise IllegalWriteException(f"{addr:x}")
-        self[addr] = val >> 8 & 0xff
-        self[addr + 1] = val & 0xff
+        if addr + 1 >= CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]:
+            raise IllegalWriteException(addr)
+        self._memory_map[addr] = val >> 8 & 0xff
+        self._memory_map[addr + 1] = val & 0xff
 
-    def write_dword(self, addr, val):
-        if addr + 3 >= self.static_mem_ptr:
-            raise IllegalWriteException(f"{addr:x}")
-        self[addr] = val >> 24 & 0xff
-        self[addr + 1] = val >> 16 & 0xff
-        self[addr + 2] = val >> 8 & 0xff
-        self[addr + 3] = val & 0xff
-
-    def reset_dynamic_memory(self, dynamic_mem):
+    def reset_dynamic_memory(self, dynamic_mem: bytes):
         # To be called after restart or restore.
+        # Preserve the height/width settings, which the game may or may not honor.
         flags2_mask = (self.read_word(0x10) | 0x3) & 0xfffc
-        word_addresses = [0x32]
-        if self.version == 4:
+        word_addresses = [0x1e, 0x32]
+        if self._version >= 4:
             word_addresses += [0x1e, 0x20]
+        if self._version >= 5:
+            word_addresses += [0x22, 0x24, 0x26, 0x2c]
         restore_values = {addr: self.read_word(addr) for addr in word_addresses}
-        self.memory_map[:self.static_mem_ptr] = dynamic_mem
+        self._memory_map[:CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]] = dynamic_mem
         self.set_screen_flags()
         flags2 = self.read_word(0x10)
         self.write_word(0x10, flags2 & flags2_mask)
@@ -108,14 +114,31 @@ class MemoryMap:
 
     def set_screen_flags(self):
         flags1 = self.read_byte(0x1)
-        self.write_byte(0x1, flags1 | self.flags1_mask)
+        flags1 |= self.flags1_mask
+        self.write_byte(0x1, flags1)
+        if self._version == 5:
+            flags2 = self.read_word(0x10)
+            # Clear bits 3, 4, and 5.
+            flags2 &= 0xc7
+            self.write_word(0x10, flags2)
+            self.write_byte(0x2c, DEFAULT_BACKGROUND_COLOR)
+            self.write_byte(0x2d, DEFAULT_FOREGROUND_COLOR)
 
-    def set_screen_dimensions(self, sender, e: EventArgs):
-        self.write_byte(0x20, e.height)
-        self.write_byte(0x21, e.width)
+    def get_interrupt_zchars(self, buffer: list[int]):
+        addr = self.read_word(0x2e)
+        while True:
+            zchar = self.read_byte(addr)
+            if zchar == 0:
+                break
+            buffer += [zchar]
+            addr += 1
 
     @property
     def transcript_active_flag(self) -> bool:
+        # This flag is the single source of truth of whether the transcript stream is open or not.
+        # It can be set with the output_stream opcode or directly by the game.
+        # Because the game can set this flag directly, it must be checked every time there
+        # is a write to the output streams.
         return self.read_word(0x10) & 0x1 == 0x1
 
     @transcript_active_flag.setter

@@ -60,6 +60,8 @@ class Event:
 class EventManager(metaclass=SingletonMeta):
     def __init__(self):
         self._attributes: Dict[str, Event] = {}
+        # This event is raised after all components have been initialized.
+        self.post_init = Event()
         # Write output to active output streams.
         self.write_to_streams = Event()
         # Write unbuffered output to the active screen window.
@@ -74,14 +76,12 @@ class EventManager(metaclass=SingletonMeta):
         self.read_input = Event()
         # The user has entered input to be read by the parser.
         self.post_read_input = Event()
-        # The user has typed a single character.
-        self.read_char = Event()
         # Write to the lower window. To be used for interpreter prompts such as transcript or save files.
         self.interpreter_prompt = Event()
         # Raised when the user has entered input from an interpreter prompt.
         self.interpreter_input = Event()
-        # Inform listeners of the screen's height/width.
-        self.set_screen_dimensions = Event()
+        # Get a list of zchars in the input stream that should terminate a read op (version 5+).
+        self.get_interrupt_zchars = Event()
         # Set the active screen window.
         self.set_window = Event()
         # Turn the buffer mode on or off.
@@ -94,8 +94,12 @@ class EventManager(metaclass=SingletonMeta):
         self.split_window = Event()
         # Erase a window.
         self.erase_window = Event()
+        # Print a table from the print_table op.
+        self.print_table = Event()
         # Emit a sound.
         self.sound_effect = Event()
+        # Change the screen colors.
+        self.set_color = Event()
         # Raised when quitting the game.
         self.quit = Event()
 

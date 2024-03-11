@@ -1,4 +1,4 @@
-from constants import *
+from config import *
 from typing import List
 
 
@@ -9,7 +9,7 @@ class StackFrame:
         self.return_pc = 0
         self.store_varnum = 0
         self.arg_count = 0
-        self.discard_result = False
+        self.routine_type = ROUTINE_TYPE_STORE
         for attr, val in kwargs.items():
             setattr(self, attr, val)
 
@@ -86,7 +86,11 @@ class CallStack:
             num_locals = len(frame.local_vars)
             frame_bytes = [0] * (8 + 2 * num_locals + 2 * eval_stack_len)
             flags = num_locals
-            if frame.discard_result:
+            # It's illegal to save the game state inside a direct call routine.
+            # If this happens for some reason, stop here and let the save opcode return false.
+            if frame.routine_type == ROUTINE_TYPE_DIRECT_CALL:
+                return bytearray()
+            if frame.routine_type == ROUTINE_TYPE_DISCARD:
                 flags |= 0x10
             frame_bytes[:3] = frame.return_pc.to_bytes(3, "big")
             frame_bytes[3:4] = flags.to_bytes(1, "big")
@@ -136,7 +140,7 @@ class CallStack:
                 return_pc=return_pc,
                 store_varnum=store_varnum,
                 arg_count=arg_count,
-                discard_result=discard_result
+                routine_type=ROUTINE_TYPE_DISCARD if discard_result else ROUTINE_TYPE_STORE
             )
             if frame_index < len(self.frames):
                 self.frames[frame_index] = frame
