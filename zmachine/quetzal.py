@@ -1,20 +1,26 @@
-from typing import BinaryIO, Callable, Any
 import os
-from constants import *
+from typing import BinaryIO, Callable, Any
 from memory import MemoryMap
 from event import EventManager, EventArgs
 from stack import CallStack
+from config import *
 
 
 class Quetzal:
-    def __init__(self, memory_map: MemoryMap, game_file: str):
+    def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
-        self.game_file = game_file
-        filename = os.path.basename(game_file)
-        base_filename = os.path.splitext(filename)[0]
-        self.filepath = os.path.dirname(game_file)
-        self.save_file = f'{base_filename}.sav'
+        self.game_file = CONFIG[GAME_FILE_KEY]
+        self.filepath = ''
+        self.save_file = ''
         self.event_manager = EventManager()
+        self.event_manager.post_init += self.post_init_handler
+
+    def post_init_handler(self, sender, e: EventArgs):
+        self.game_file = CONFIG[GAME_FILE_KEY]
+        filename = os.path.basename(self.game_file)
+        base_filename = os.path.splitext(filename)[0]
+        self.filepath = os.path.dirname(self.game_file)
+        self.save_file = f'{base_filename}.sav'
 
     def read_byte(self, addr):
         return self.memory_map.read_byte(addr)
@@ -25,21 +31,23 @@ class Quetzal:
     def write_word(self, addr, val):
         self.memory_map.write_word(addr, val)
 
-    def do_save(self, pc: int, call_stack: CallStack):
+    def do_save(self, pc: int, call_stack: CallStack) -> bool:
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(self.filepath, save_file)
         if os.path.exists(save_full_path):
             if self.interpreter_input('Overwrite existing file? (Y is affirmative) ') != 'y':
                 return False
         data_len = len(IFZS_ID)
-        header_data = self.memory_map.release_number[:]
-        header_data += self.memory_map.serial_number
-        header_data += self.memory_map.checksum.to_bytes(2, "big")
+        header_data = CONFIG[RELEASE_NUMBER_KEY][:]
+        header_data += CONFIG[SERIAL_NUMBER_KEY]
+        header_data += CONFIG[CHECKSUM_KEY].to_bytes(2, "big")
         header_data += pc.to_bytes(3, "big")
         header_chunk = IffChunk(HEADER_CHUNK, header_data)
         dynamic_memory = self.compress_dynamic_memory()
         mem_chunk = IffChunk(COMPRESSED_MEMORY_CHUNK, dynamic_memory)
         stack_data = call_stack.serialize()
+        if len(stack_data) == 0:
+            return False
         stack_chunk = IffChunk(CALL_STACK_CHUNK, stack_data)
         for chunk in (header_chunk, mem_chunk, stack_chunk):
             data_len += len(chunk)
@@ -57,7 +65,7 @@ class Quetzal:
             # TODO: Logging would be nice.
             return False
 
-    def do_restore(self, call_stack: CallStack, reset_pc_callback: Callable[[int], Any]):
+    def do_restore(self, call_stack: CallStack, reset_pc_callback: Callable[[int], Any]) -> bool:
         flags2_bits = self.read_word(0x10) & 0x3
         filepath = os.path.dirname(self.game_file)
         save_file = self.prompt_save_file()
@@ -89,9 +97,9 @@ class Quetzal:
         except Exception as err:
             # print(f'{err}')
             return False
-        if release_number != self.memory_map.release_number or \
-                serial_number != self.memory_map.serial_number or \
-                checksum != self.memory_map.checksum:
+        if release_number != CONFIG[RELEASE_NUMBER_KEY] or \
+                serial_number != CONFIG[SERIAL_NUMBER_KEY] or \
+                checksum != CONFIG[CHECKSUM_KEY]:
             self.interpreter_prompt("Invalid save file!")
             return False
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
@@ -115,7 +123,7 @@ class Quetzal:
     # of bytes we can skip when restoring the dynamic memory).
     # Otherwise, write the result of the exclusive or.
     def compress_dynamic_memory(self) -> bytearray:
-        static_mem_ptr = self.memory_map.static_mem_ptr
+        static_mem_ptr = CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]
         result = [0] * static_mem_ptr
         result_ptr = 0
         with open(self.game_file, "rb") as s:
@@ -138,7 +146,7 @@ class Quetzal:
 
     def uncompress_dynamic_memory(self, encoded_memory) -> bytearray:
         with open(self.game_file, 'rb') as s:
-            dynamic_mem = bytearray(s.read(self.memory_map.static_mem_ptr))
+            dynamic_mem = bytearray(s.read(CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]))
         mem_ptr = 0
         byte_ptr = 0
         while byte_ptr < len(encoded_memory):
@@ -157,6 +165,8 @@ class Quetzal:
         save_file = self.interpreter_input(f'Default is "{self.save_file}": ')
         if save_file == '':
             save_file = self.save_file
+        else:
+            self.save_file = save_file
         return save_file
 
     def interpreter_prompt(self, text):

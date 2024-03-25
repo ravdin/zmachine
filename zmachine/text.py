@@ -1,4 +1,5 @@
 from memory import MemoryMap
+from config import *
 from typing import List
 from error import *
 
@@ -10,9 +11,7 @@ class TextUtils:
 
     def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
-        self.abbreviation_table = memory_map.abbreviation_table
         self.separator_chars = self.get_separator_chars()
-        self.version = memory_map.version
 
     def read_byte(self, ptr):
         return self.memory_map.read_byte(ptr)
@@ -20,43 +19,67 @@ class TextUtils:
     def read_word(self, ptr):
         return self.memory_map.read_word(ptr)
 
+    def read_int16(self, addr):
+        num = self.read_word(addr)
+        if num >= 0x8000:
+            num = -(~num & 0xffff) - 1
+        return num
+
     def get_separator_chars(self):
-        ptr = self.memory_map.dictionary_header
+        ptr = CONFIG[DICTIONARY_TABLE_KEY]
         num_separators = self.read_byte(ptr)
         return [chr(self.read_byte(ptr + i + 1)) for i in range(num_separators)]
 
-    def lookup_dictionary(self, text):
+    def lookup_dictionary(self, text, dictionary_addr=0):
+        def compare_entry(entry_addr, encoded_bytes):
+            for i in range(len(encoded_bytes)):
+                entry_byte = self.read_byte(entry_addr + i)
+                if encoded_bytes[i] < entry_byte:
+                    return -1
+                elif encoded_bytes[i] > entry_byte:
+                    return 1
+            return 0
+
         # Of course, we could load the dictionary into a hashtable for fastest lookup.
         # The dictionary is already loaded into memory, so we'll use it in a binary search.
-        def read_entry(entry_addr, entry_bytes):
-            result = 0
-            for _ in range(entry_bytes >> 1):
-                result <<= 16
-                result |= self.read_word(entry_addr)
-                entry_addr += 2
-            return result
+        def binary_search():
+            lo = 0
+            hi = num_entries - 1
+            while lo < hi:
+                mid = (lo + hi) >> 1
+                mid_ptr = first_entry_ptr + mid * entry_length
+                comparison = compare_entry(mid_ptr, encoded)
+                if comparison == 0:
+                    return mid_ptr
+                elif comparison > 0:
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            lo_ptr = first_entry_ptr + lo * entry_length
+            return lo_ptr if compare_entry(lo_ptr, encoded) == 0 else 0
 
-        encoded_len = 4 if self.version <= 3 else 6
+        def linear_search():
+            entry_ptr = first_entry_ptr
+            for _ in range(num_entries):
+                if compare_entry(entry_ptr, encoded) == 0:
+                    return entry_ptr
+                entry_ptr += entry_length
+            return 0
+
+        encoded_len = 4 if CONFIG[VERSION_NUMBER_KEY] <= 3 else 6
         encoded = self.zscii_encode(text, encoded_len)
-        ptr = self.memory_map.dictionary_header
-        num_separators = self.read_byte(ptr)
-        entry_length = self.read_byte(ptr + num_separators + 1)
-        num_entries = self.read_word(ptr + num_separators + 2)
-        ptr += num_separators + 4
-        lo = 0
-        hi = num_entries - 1
-        while lo < hi:
-            mid = (lo + hi) >> 1
-            mid_ptr = ptr + mid * entry_length
-            entry = read_entry(mid_ptr, encoded_len)
-            if entry == encoded:
-                return mid_ptr
-            elif entry < encoded:
-                lo = mid + 1
-            else:
-                hi = mid - 1
-        lo_ptr = ptr + lo * entry_length
-        return lo_ptr if read_entry(lo_ptr, encoded_len) == encoded else 0
+        search_method = binary_search
+        if dictionary_addr == 0:
+            dictionary_addr = CONFIG[DICTIONARY_TABLE_KEY]
+        num_separators = self.read_byte(dictionary_addr)
+        entry_length = self.read_byte(dictionary_addr + num_separators + 1)
+        num_entries = self.read_int16(dictionary_addr + num_separators + 2)
+        if num_entries < 0:
+            # A negative number of entries means that there are -n unsorted entries.
+            search_method = linear_search
+            num_entries = -num_entries
+        first_entry_ptr = dictionary_addr + num_separators + 4
+        return search_method()
 
     @staticmethod
     def tokenize(command, separator_chars=None):
@@ -137,12 +160,12 @@ class TextUtils:
 
     def abbreviation_lookup(self, index):
         result = []
-        addr = self.memory_map.word_addr(self.abbreviation_table + index * 2)
+        addr = self.memory_map.word_addr(CONFIG[ABBREVIATION_TABLE_KEY] + index * 2)
         self.read_zchars(addr, result)
         return result
 
-    def zscii_encode(self, text, word_len=4):
-        zlen = word_len // 2 * 3
+    def zscii_encode(self, text, byte_len=4) -> list[int]:
+        zlen = byte_len // 2 * 3
         zchars = []
         for c in text:
             if 'a' <= c <= 'z':
@@ -151,18 +174,19 @@ class TextUtils:
                 zchars += [5, self.A2.index(c) + 6]
             elif 32 <= ord(c) <= 126:
                 ascii_val = ord(c)
-                z1 = ascii_val >> 5 & 0x1f
+                z1 = ascii_val >> 5
                 z2 = ascii_val & 0x1f
                 zchars += [5, 6, z1, z2]
             else:
-                return 0
+                # TODO: The interpreter doesn't recognize wide characters.
+                return [0] * byte_len
         if len(zchars) < zlen:
             zchars += [5] * (zlen - len(zchars))
-        encoded = 0
-        for i in range(zlen):
-            if i % 3 == 0:
-                encoded <<= 1
-            encoded <<= 5
-            encoded |= zchars[i]
-        encoded |= 0x8000
-        return encoded
+        result = [0] * byte_len
+        for i in range(byte_len // 2):
+            encoded_ptr = i * 2
+            zchars_ptr = i * 3
+            result[encoded_ptr] = (zchars[zchars_ptr] << 2) | (zchars[zchars_ptr + 1] >> 3)
+            result[encoded_ptr + 1] = ((zchars[zchars_ptr + 1] & 0x7) << 5) | zchars[zchars_ptr + 2]
+        result[-2] |= 0x80
+        return result

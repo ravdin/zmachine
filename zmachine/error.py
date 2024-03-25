@@ -5,13 +5,18 @@ class ZSCIIException(Exception):
 
 
 class IllegalWriteException(Exception):
-    def __init__(self, message):
-        super().__init__(f"Illegal write to static memory: {message}")
+    def __init__(self, addr: int):
+        super().__init__(f"Illegal write to static memory: {addr:x}")
 
 
 class InvalidMemoryException(Exception):
     def __init__(self, message):
         super().__init__(f"Invalid read operation: {message}")
+
+
+class UnrecognizedOpcodeException(Exception):
+    def __init__(self, opcode_number: int, instruction_ptr: int):
+        super().__init__(f'Unknown opcode {opcode_number} at instruction address {instruction_ptr:x}')
 
 
 class InvalidArgumentException(Exception):

@@ -1,20 +1,35 @@
 import curses
+
+from zmachine import config
 from zmachine.screen import Screen
 from zmachine.stream import ScreenStream
-from zmachine.event import EventManager, EventArgs
+from zmachine.event import EventArgs
 
 
 class ScreenTest:
     def __init__(self, version: int):
+        self.version = version
         self.stream = ScreenStream()
         self.stream.buffer_mode = True
         self.height = 0
         self.width = 0
         self.event_manager = self.stream.event_manager
-        self.event_manager.set_screen_dimensions += self.set_dimensions_handler
         self.screen = Screen(version, self.stream)
         curses.noecho()
         self.init_status_line()
+        self.post_init()
+
+    def run(self):
+        if self.version == 4:
+            self.run_v4()
+        else:
+            raise Exception(f"Unsupported version: {self.version}")
+
+    def run_v4(self):
+        self.test_split_window()
+        self.test_overlay()
+        self.test_menu()
+        self.test_erase_window()
 
     def init_status_line(self):
         self.event_manager.erase_window.invoke(self, EventArgs(window_id=-2))
@@ -38,9 +53,9 @@ class ScreenTest:
         self.set_window(0)
         self.stream.buffer_mode = True
 
-    def set_dimensions_handler(self, sender, e: EventArgs):
-        self.width = e.width
-        self.height = e.height
+    def post_init(self):
+        self.width = config.screen_width
+        self.height = config.screen_height
         self.stream.write(f"Screen width: {self.width}", True)
         self.stream.write(f"Screen height: {self.height}", True)
 
@@ -142,7 +157,7 @@ In one long bloody thread, from tail to snout.
         self.set_window(1)
         self.set_text_style(1)
         x_pos = (self.width - overlay_width) // 2
-        y_pos = 3
+        y_pos = 4
         for line in text.split("\n"):
             self.set_cursor(y_pos, x_pos)
             self.stream.write(" " * 2, False)
