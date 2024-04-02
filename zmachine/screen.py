@@ -301,7 +301,6 @@ class Screen:
                     continue
                 if echo:
                     self.main_screen.echochar(c)
-                    curses.doupdate()
                 if ord('A') <= c <= ord('Z'):
                     c += 32
                 text_buffer[buffer_pos] = c
@@ -325,6 +324,8 @@ class Screen:
             text = self.output_stream.flush_buffer()
             if len(text) == 0:
                 return
+            curses.noecho()
+            curses.cbreak()
             active_window = self.active_window
             self.set_active_window(window)
             output_lines = self.wrap_lines(text)
