@@ -1,16 +1,20 @@
+from __future__ import absolute_import
 import curses
+import random
+import os
 from typing import Callable
 from event import EventManager, EventArgs
+from input import KeyboardReader
 from stream import ScreenStream
 from config import *
 
 
 class Window:
-    def __init__(self, height, width, y_pos, x_pos):
-        self.height = height
-        self.width = width
-        self.y_pos = y_pos
-        self.x_pos = x_pos
+    def __init__(self):
+        self.height = 0
+        self.width = 0
+        self.y_pos = 0
+        self.x_pos = 0
         self.y_cursor = 0
         self.x_cursor = 0
         self.style_attributes = 0
@@ -71,17 +75,20 @@ class Screen:
             self.main_screen: curses.window = None
             self.height = 0
             self.width = 0
-            self.lower_window = Window(0, 0, 0, 0)
-            self.upper_window = Window(0, 0, 0, 0)
+            self.lower_window = Window()
+            self.upper_window = Window()
             self.active_window = self.lower_window
             self.output_line_count = 0
+            self.record_stream_active = False
+            self.keyboard_input_active = True
             self.output_stream = output_stream
             self.event_manager = EventManager()
             self.register_delegates()
 
         def build(self, main_screen: curses.window):
-            curses.cbreak()
+            curses.raw()
             curses.noecho()
+            curses.intrflush(True)
             main_screen.scrollok(True)
             main_screen.leaveok(False)
             main_screen.notimeout(False)
@@ -105,6 +112,7 @@ class Screen:
             self.event_manager.print_to_active_window += self.print_to_active_window_handler
             self.event_manager.interpreter_prompt += self.interpreter_prompt_handler
             self.event_manager.interpreter_input += self.interpreter_input_handler
+            self.event_manager.select_input_stream += self.select_input_stream_handler
             self.event_manager.select_output_stream += self.select_output_stream_handler
             self.event_manager.sound_effect += self.sound_effect_handler
             self.event_manager.quit += self.quit_handler
@@ -184,6 +192,12 @@ class Screen:
             self.main_screen.noutrefresh()
             curses.doupdate()
 
+        def select_input_stream_handler(self, sender, e: EventArgs):
+            if e.stream_id == INPUT_STREAM_PLAYBACK:
+                self.keyboard_input_active = False
+            elif e.stream_id == INPUT_STREAM_KEYBOARD:
+                self.keyboard_input_active = True
+
         def select_output_stream_handler(self, sender, e: EventArgs):
             self.flush_buffer(self.lower_window)
 
@@ -234,8 +248,9 @@ class Screen:
                 interrupt_routine_addr: int,
                 echo: bool = True
         ):
+            curses.raw()
             curses.noecho()
-            curses.cbreak()
+            curses.intrflush(True)
             timeout_val = -1 if timeout_ms == 0 else timeout_ms
             self.main_screen.timeout(timeout_val)
             buffer_pos = 0
@@ -258,6 +273,18 @@ class Screen:
                     self.main_screen.timeout(timeout_val)
                     if tuple(escape_sequence) in self.ZSCII_INPUT_HOTKEYS.keys():
                         c = self.ZSCII_INPUT_HOTKEYS[tuple(escape_sequence)]
+                    elif len(escape_sequence) == 1:
+                        hotkey = escape_sequence[0]
+                        if hotkey == HOTKEY_HELP:
+                            self.__hotkey_prompt(self.__display_help)
+                        elif hotkey == HOTKEY_SEED:
+                            self.__hotkey_prompt(self.__seed_random_value)
+                        elif hotkey == HOTKEY_RECORD:
+                            if self.record_stream_active:
+                                self.__hotkey_prompt(self.__close_record_stream)
+                            else:
+                                self.__hotkey_prompt(self.__open_record_stream)
+                        continue
                     elif len(escape_sequence) > 0:
                         # Unrecognized escape sequence, ignore.
                         continue
@@ -313,6 +340,8 @@ class Screen:
             curses.doupdate()
 
         def read_input_handler(self, sender, event_args: EventArgs):
+            if not self.keyboard_input_active:
+                return
             timeout_ms: int = event_args.timeout_ms
             text_buffer: list[int] = event_args.text_buffer
             interrupt_routine_caller: Callable[[int], int] = event_args.interrupt_routine_caller
@@ -324,8 +353,6 @@ class Screen:
             text = self.output_stream.flush_buffer()
             if len(text) == 0:
                 return
-            curses.noecho()
-            curses.cbreak()
             active_window = self.active_window
             self.set_active_window(window)
             output_lines = self.wrap_lines(text)
@@ -334,7 +361,7 @@ class Screen:
                 self.main_screen.addstr(line)
                 if self.main_screen.getyx()[1] == 0:
                     self.output_line_count += 1
-                if self.output_line_count >= window.height - 1:
+                if self.height < MAX_SCREEN_HEIGHT and self.output_line_count >= window.height - 1:
                     self.main_screen.addstr('[MORE]')
                     self.main_screen.refresh()
                     self.main_screen.getch()
@@ -388,6 +415,72 @@ class Screen:
                         x = 0
                     result += [output_line]
             return result
+
+        def __hotkey_prompt(self, hotkey_func: Callable[[], int]):
+            curses.echo()
+            text_style = self.lower_window.style_attributes
+            y, x = self.main_screen.getyx()
+            self.lower_window.style_attributes = 0
+            added_lines = hotkey_func()
+            new_y, new_x = self.main_screen.getyx()
+            for x_pos in range(self.width - 1):
+                c = self.main_screen.inch(new_y - added_lines, x_pos)
+                self.main_screen.insch(new_y, x_pos, c)
+            self.main_screen.move(new_y, x)
+            self.lower_window.style_attributes = text_style
+            curses.noecho()
+            curses.doupdate()
+
+        def __display_help(self):
+            added_lines = 0
+            for line in HELP_TEXT.split("\n"):
+                self.main_screen.addstr(line + "\n")
+                added_lines += 1
+            return added_lines
+
+        def __seed_random_value(self):
+            self.main_screen.addstr("\n")
+            self.main_screen.addstr("Enter a seed value: ")
+            seed = self.main_screen.getstr().decode(encoding='utf-8')
+            if seed.isdigit():
+                random.seed(int(seed))
+                self.main_screen.addstr("Random seed set.\n")
+            else:
+                self.main_screen.addstr("Invalid value, could not set seed.\n")
+            return 3
+
+        def __open_record_stream(self):
+            game_file = CONFIG[GAME_FILE_KEY]
+            filepath = os.path.dirname(game_file)
+            filename = os.path.basename(game_file)
+            base_filename = os.path.splitext(filename)[0]
+            default_record_file = f'{base_filename}.rec'
+            self.main_screen.addstr("\n")
+            self.main_screen.addstr("Enter a file name.\n")
+            self.main_screen.addstr(f'Default is "{default_record_file}": ')
+            record_file = self.main_screen.getstr().decode(encoding='utf-8')
+            if record_file == '':
+                record_file = default_record_file
+            record_full_path = os.path.join(filepath, record_file)
+            additional_line_count = 0
+            if os.path.exists(record_full_path):
+                self.main_screen.addstr("File exists, overwrite? (y is affirmative): ")
+                if self.main_screen.getch() != ord('y'):
+                    self.main_screen.addstr("\nFile not opened, input recording is off.\n\n")
+                    return 6
+                self.main_screen.addstr("\n")
+                additional_line_count = 1
+            event_args = EventArgs(stream_id=4, record_full_path=os.path.join(filepath, record_file))
+            self.event_manager.select_output_stream.invoke(self, event_args)
+            self.main_screen.addstr("Recording input on.\n\n")
+            self.record_stream_active = True
+            return 5 + additional_line_count
+
+        def __close_record_stream(self):
+            self.event_manager.select_output_stream.invoke(self, EventArgs(stream_id=-4))
+            self.main_screen.addstr("\nRecording input off.\n")
+            self.record_stream_active = False
+            return 1
 
     class ScreenV3Builder(AbstractScreenBuilder):
         def __init__(self, output_stream: ScreenStream):

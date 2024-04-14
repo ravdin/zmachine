@@ -550,7 +550,7 @@ def op_random(zm, *operands):
     if r > 0:
         result = random.randint(1, r)
     elif r < 0:
-        random.seed(r)
+        random.seed(-r)
     else:
         random.seed(round(time.time() * 1000) % 1000)
     zm.do_store(result)

@@ -78,10 +78,10 @@ class MemoryMap:
         shift = 1 if self._version <= 3 else 2
         return packed_addr << shift
 
-    def read_byte(self, addr):
+    def read_byte(self, addr: int) -> int:
         return self._memory_map[addr]
 
-    def read_word(self, addr):
+    def read_word(self, addr: int) -> int:
         return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
     def write_byte(self, addr, val):

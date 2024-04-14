@@ -1,10 +1,11 @@
 SUPPORTED_VERSIONS = (3, 4, 5)
-INTERPRETER_REVISION = 0x101 # Write this as revision 1.1
+INTERPRETER_REVISION = 0x101  # Write this as revision 1.1
 # TODO: Set from the command line?
 # For now, tell the game it's played on an DEC system, with a version number set to 'A'.
 INTERPRETER_NUMBER = 0x141
 MAX_STACK_LENGTH = 1024
 INPUT_BUFFER_LENGTH = 200
+MAX_SCREEN_HEIGHT = 255
 LOWER_WINDOW = 0
 UPPER_WINDOW = 1
 DEFAULT_FOREGROUND_COLOR = 9
@@ -30,11 +31,30 @@ STATUS_TYPE_TIME = 1
 ROUTINE_TYPE_STORE = 0
 ROUTINE_TYPE_DISCARD = 1
 ROUTINE_TYPE_DIRECT_CALL = 2
+INPUT_STREAM_KEYBOARD = 0
+INPUT_STREAM_PLAYBACK = 1
 IFF_HEADER = bytearray('FORM'.encode('UTF-8'))
 IFZS_ID = bytearray('IFZS'.encode('UTF-8'))
 HEADER_CHUNK = 'IFhd'
 COMPRESSED_MEMORY_CHUNK = 'CMem'
 CALL_STACK_CHUNK = 'Stks'
+
+HOTKEY_HELP = ord('h')
+HOTKEY_PLAYBACK = ord('p')
+HOTKEY_RECORD = ord('r')
+HOTKEY_SEED = ord('s')
+HOTKEY_DEBUG = ord('d')
+
+HELP_TEXT = \
+    """
+Hotkey options
+
+Alt-h: Display this menu
+Alt-s: Seed random numbers
+Alt-r: Record input
+Alt-p: Playback recorded input
+Alt-d: Write instructions to debug file
+"""
 
 VERSION_NUMBER_KEY = 'version_number'
 RELEASE_NUMBER_KEY = 'release_number'
@@ -48,12 +68,10 @@ SERIAL_NUMBER_KEY = 'serial_number'
 ABBREVIATION_TABLE_KEY = 'abbreviation_table'
 FILE_LENGTH_KEY = 'file_length'
 CHECKSUM_KEY = 'checksum'
-
 GAME_FILE_KEY = 'game_file'
 SCREEN_HEIGHT_KEY = 'screen_height'
 SCREEN_WIDTH_KEY = 'screen_width'
 INTERRUPT_ZCHARS_KEY = 'interrupt_zchars'
-
 
 CONFIG = {
     VERSION_NUMBER_KEY: 0,
