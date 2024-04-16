@@ -1,4 +1,5 @@
-from screen import Screen
+from screen import *
+from __curses import CursesAdapter
 from memory import MemoryMap
 from event import EventManager, EventArgs
 from stream import OutputStreamManager
@@ -20,10 +21,20 @@ class ZMachineBuilder:
         CONFIG[GAME_FILE_KEY] = game_file
         event_manager = EventManager.initialize_events()
         memory_map = MemoryMap(game_data)
-        self.output_stream_manager = OutputStreamManager(memory_map)
+        screen = self.initialize_screen(self.version)
+        self.output_stream_manager = OutputStreamManager(screen, memory_map)
         self.interpreter = ZMachineInterpreter(memory_map)
-        self.screen = Screen(self.version, self.output_stream_manager.screen_stream)
         event_manager.post_init.invoke(self, EventArgs())
+
+    @staticmethod
+    def initialize_screen(version: int) -> BaseScreen:
+        screen_adapter = CursesAdapter()
+        if version == 3:
+            return ScreenV3(screen_adapter)
+        if version == 4:
+            return ScreenV4(screen_adapter)
+        if version == 5:
+            return ScreenV5(screen_adapter)
 
     def start(self):
         self.interpreter.do_run()

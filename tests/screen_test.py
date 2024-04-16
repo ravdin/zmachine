@@ -1,7 +1,6 @@
-import curses
-
 from zmachine import config
-from zmachine.screen import Screen
+from zmachine.screen import ScreenV4
+from zmachine.__curses import CursesAdapter
 from zmachine.stream import ScreenStream
 from zmachine.event import EventArgs
 
@@ -9,13 +8,13 @@ from zmachine.event import EventArgs
 class ScreenTest:
     def __init__(self, version: int):
         self.version = version
-        self.stream = ScreenStream()
+        adapter = CursesAdapter()
+        self.screen = ScreenV4(adapter)
+        self.stream = ScreenStream(self.screen)
         self.stream.buffer_mode = True
         self.height = 0
         self.width = 0
         self.event_manager = self.stream.event_manager
-        self.screen = Screen(version, self.stream)
-        curses.noecho()
         self.init_status_line()
         self.post_init()
 
@@ -54,8 +53,8 @@ class ScreenTest:
         self.stream.buffer_mode = True
 
     def post_init(self):
-        self.width = config.screen_width
-        self.height = config.screen_height
+        self.width = config.CONFIG[config.SCREEN_WIDTH_KEY]
+        self.height = config.CONFIG[config.SCREEN_HEIGHT_KEY]
         self.stream.write(f"Screen width: {self.width}", True)
         self.stream.write(f"Screen height: {self.height}", True)
 

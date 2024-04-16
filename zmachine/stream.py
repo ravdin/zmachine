@@ -1,4 +1,5 @@
 from memory import MemoryMap
+from screen import BaseScreen
 from event import EventManager, EventArgs
 from error import *
 from config import *
@@ -6,8 +7,8 @@ import os
 
 
 class OutputStreamManager:
-    def __init__(self, memory_map: MemoryMap):
-        self.screen_stream = ScreenStream()
+    def __init__(self, screen: BaseScreen, memory_map: MemoryMap):
+        self.screen_stream = ScreenStream(screen)
         self.transcript_stream = TranscriptStream(memory_map)
         self.memory_stream = MemoryStream(memory_map)
         self.event_manager = EventManager()
@@ -68,41 +69,16 @@ class OutputStream:
 class ScreenStream(OutputStream):
     _BUFFER_LENGTH = 1024
 
-    def __init__(self):
+    def __init__(self, screen: BaseScreen):
         super().__init__(True)
-        self.buffer = ['\0'] * self._BUFFER_LENGTH
-        self.buffer_ptr = 0
+        self.screen = screen
 
     def write(self, text: str, newline: bool):
         if self.is_active:
             if self.buffer_mode and self.active_window == LOWER_WINDOW:
-                self.write_to_buffer(text, newline)
+                self.screen.write_to_buffer(text, newline)
             else:
-                self.write_to_screen(text, newline)
-
-    def write_to_buffer(self, text: str, newline: bool):
-        text_len = len(text)
-        while self.buffer_ptr + text_len + 1 >= len(self.buffer):
-            self.buffer += ['\0'] * self._BUFFER_LENGTH
-        prev_ptr = self.buffer_ptr
-        next_ptr = self.buffer_ptr + text_len
-        self.buffer[prev_ptr:next_ptr] = text
-        if newline:
-            self.buffer[next_ptr] = "\n"
-            next_ptr += 1
-        self.buffer_ptr = next_ptr
-
-    def write_to_screen(self, text: str, newline: bool):
-        event_args = EventArgs(text=text, newline=newline)
-        self.event_manager.print_to_active_window.invoke(self, event_args)
-
-    def flush_buffer(self) -> str:
-        text = ''.join(self.buffer[:self.buffer_ptr])
-        self.buffer_ptr = 0
-        return text
-
-    def has_buffer(self):
-        return self.buffer_ptr > 0
+                self.screen.print_to_active_window(text, newline)
 
 
 class TranscriptStream(OutputStream):
