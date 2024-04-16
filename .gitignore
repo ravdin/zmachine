@@ -4,6 +4,7 @@ __pycache__
 *.sav
 *.qzl
 *.txt
+*.rec
 debug.txt
 .DS_Store
 .idea
