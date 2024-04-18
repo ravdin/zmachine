@@ -66,6 +66,8 @@ class EventManager(metaclass=SingletonMeta):
         self.write_to_streams = Event()
         # Write unbuffered output to the active screen window.
         self.print_to_active_window = Event()
+        # Activate an input stream.
+        self.select_input_stream = Event()
         # Activate or deactivate an output stream.
         self.select_output_stream = Event()
         # Refresh the status line (version 3).

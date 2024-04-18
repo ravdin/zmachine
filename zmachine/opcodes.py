@@ -265,9 +265,12 @@ def op_get_prop(zm, *operands):
 
 def op_get_prop_addr(zm, *operands):
     obj_id, prop_id = operands
-    prop_addr = zm.object_table.get_property_addr(obj_id, prop_id)
-    if prop_addr is None:
+    if obj_id == 0:
         prop_addr = 0
+    else:
+        prop_addr = zm.object_table.get_property_addr(obj_id, prop_id)
+        if prop_addr is None:
+            prop_addr = 0
     zm.do_store(prop_addr)
 
 
@@ -550,7 +553,7 @@ def op_random(zm, *operands):
     if r > 0:
         result = random.randint(1, r)
     elif r < 0:
-        random.seed(r)
+        random.seed(-r)
     else:
         random.seed(round(time.time() * 1000) % 1000)
     zm.do_store(result)

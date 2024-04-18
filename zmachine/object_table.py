@@ -16,13 +16,13 @@ class ObjectTable:
         self.SIBLING_OFFSET = 5 if self.version <= 3 else 8
         self.CHILD_OFFSET = 6 if self.version <= 3 else 10
 
-    def read_byte(self, addr):
+    def read_byte(self, addr: int) -> int:
         return self.memory_map.read_byte(addr)
 
-    def read_word(self, addr):
+    def read_word(self, addr: int) -> int:
         return self.memory_map.read_word(addr)
 
-    def byte_addr(self, addr):
+    def byte_addr(self, addr: int) -> int:
         return self.memory_map.byte_addr(addr)
 
     def write_byte(self, addr, val):
@@ -54,7 +54,7 @@ class ObjectTable:
         obj_addr = self.get_obj_addr(obj_id)
         return self.read_byte(obj_addr + byte_offset) & attr_flag == attr_flag
 
-    def set_attribute_flag(self, obj_id, attr_num, value=bool):
+    def set_attribute_flag(self, obj_id, attr_num, value: bool):
         if attr_num >= self.ATTRIBUTE_FLAGS:
             raise InvalidArgumentException(f'Invalid attribute: {attr_num}')
         byte_offset = attr_num >> 3

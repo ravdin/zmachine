@@ -266,10 +266,10 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def stack_push(self, val):
         self.eval_stack.push(val)
 
-    def stack_pop(self):
+    def stack_pop(self) -> int:
         return self.eval_stack.pop()
 
-    def stack_peek(self):
+    def stack_peek(self) -> int:
         return self.eval_stack.peek()
 
     def get_global_var(self, index):
@@ -321,7 +321,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             local = 0
             if self.version <= 4:
                 local = self.read_from_pc(2)
-            if len(args) > i:
+            if i < len(args):
                 local = args[i]
             local_vars[i] = local
         self.call_stack.push(
@@ -335,9 +335,8 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def do_return(self, retval: int):
         stack_frame = self.call_stack.pop()
         store_varnum = stack_frame.store_varnum
-        return_pc = stack_frame.return_pc
         routine_type = stack_frame.routine_type
-        self.pc = return_pc
+        self.pc = stack_frame.return_pc
         if routine_type == ROUTINE_TYPE_STORE:
             self.write_var(store_varnum, retval)
         elif routine_type == ROUTINE_TYPE_DIRECT_CALL:
@@ -348,7 +347,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         Make a direct call to a routine.
         """
         if call_addr == 0:
-            return True
+            return 0
         frame_id = self.call_stack.catch()
         self.do_routine(call_addr, tuple[int](), ROUTINE_TYPE_DIRECT_CALL)
         while self.call_stack.catch() > frame_id:
@@ -406,7 +405,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
                 buffer_char = self.read_byte(text_buffer_addr + i + 2)
                 if buffer_char == 0:
                     break
-                text_buffer[i] = self.read_byte(text_buffer_addr + i + 2)
+                text_buffer[i] = buffer_char
         event_args.text_buffer = text_buffer
         event_args.timeout_ms = timeout_ms
         event_args.interrupt_routine_caller = self.do_direct_call
@@ -430,13 +429,14 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             # A terminating char of 0 means the read timed out.
             # It's possible that a direct call has reset the PC and call stack through a
             # restart or a restore.
-            # Only do the store operation in this case if the PC hasn't moved.
+            # Only do the store operation if the PC hasn't moved.
             if terminating_char != 0 or self.pc == current_pc:
                 self.do_store(terminating_char)
+        command = bytearray(text_buffer[:input_len - 1]).decode()
+        event_args = EventArgs(command=command, terminating_char=terminating_char)
+        self.event_manager.post_read_input.invoke(self, event_args)
         if terminating_char == 13:
-            command = bytearray(text_buffer[:input_len - 1]).decode()
             self.parse_command(command, parse_buffer_addr)
-            self.event_manager.post_read_input.invoke(self, EventArgs(command=command))
 
     def do_read_char(self, time: int = 0, routine: int = 0):
         self.event_manager.pre_read_input.invoke(self, EventArgs())

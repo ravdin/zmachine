@@ -2,6 +2,7 @@ from screen import *
 from __curses import CursesAdapter
 from memory import MemoryMap
 from event import EventManager, EventArgs
+from input import InputStreamManager
 from stream import OutputStreamManager
 from interpreter import ZMachineInterpreter
 from config import *
@@ -22,6 +23,7 @@ class ZMachineBuilder:
         event_manager = EventManager.initialize_events()
         memory_map = MemoryMap(game_data)
         screen = self.initialize_screen(self.version)
+        self.input_stream_manager = InputStreamManager(screen)
         self.output_stream_manager = OutputStreamManager(screen, memory_map)
         self.interpreter = ZMachineInterpreter(memory_map)
         event_manager.post_init.invoke(self, EventArgs())

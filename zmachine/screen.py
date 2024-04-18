@@ -120,7 +120,6 @@ class BaseScreen:
 
     def register_delegates(self):
         self.event_manager.pre_read_input += self.pre_read_input_handler
-        self.event_manager.read_input += self.read_input_handler
         self.event_manager.set_window += self.set_window_handler
         self.event_manager.split_window += self.split_window_handler
         self.event_manager.erase_window += self.erase_window_handler
@@ -136,12 +135,14 @@ class BaseScreen:
         self.flush_buffer(self.active_window)
         self.screen_adapter.refresh()
 
-    def read_input_handler(self, sender, event_args: EventArgs):
-        timeout_ms: int = event_args.timeout_ms
-        text_buffer: list[int] = event_args.text_buffer
-        interrupt_routine_caller: Callable[[int], int] = event_args.interrupt_routine_caller
-        interrupt_routine_addr: int = event_args.interrupt_routine_addr
-        echo = event_args.get('echo', True)
+    def read_keyboard_input(
+            self,
+            text_buffer: list[int],
+            timeout_ms: int,
+            interrupt_routine_caller: Callable[[int], int],
+            interrupt_routine_addr: int,
+            echo: bool = True
+    ):
         self.screen_adapter.read_keyboard_input(
             text_buffer,
             timeout_ms,
@@ -280,6 +281,7 @@ class BaseScreen:
         text = ''.join(self.text_buffer[:self.text_buffer_ptr])
         self.text_buffer_ptr = 0
         active_window = self.active_window
+        is_keyboard_input = CONFIG[ACTIVE_INPUT_STREAM_KEY] == INPUT_STREAM_KEYBOARD
         self.set_active_window(window)
         output_lines = self.wrap_lines(text)
         self.screen_adapter.apply_style_attributes(self.active_window.style_attributes)
@@ -287,7 +289,7 @@ class BaseScreen:
             self.write_to_screen(line)
             if self.screen_adapter.get_coordinates()[1] == 0:
                 self.output_line_count += 1
-            if self.output_line_count >= window.height - 1:
+            if self.output_line_count >= window.height - 1 and is_keyboard_input:
                 self.write_to_screen('[MORE]')
                 self.screen_adapter.refresh()
                 self.screen_adapter.get_input_char()

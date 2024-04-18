@@ -29,7 +29,7 @@ class CallStack:
             self.frame_ptr = 1
 
     @property
-    def current_frame(self):
+    def current_frame(self) -> StackFrame:
         if self.frame_ptr <= 0:
             raise Exception('No current call frame')
         return self.frames[self.frame_ptr - 1]
