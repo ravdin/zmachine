@@ -1,22 +1,22 @@
 import os
+from enum import Enum
 from typing import BinaryIO, Callable, Any
+from event import EventArgs, EventManager
 from memory import MemoryMap
-from event import EventManager, EventArgs
+from constants import IFF_HEADER, IFZS_ID
 from stack import CallStack
-from config import *
 
+class IffType(Enum):
+    HEADER = 'IFhd'
+    COMPRESSED_MEMORY = 'CMem'
+    CALL_STACK = 'Stks'
 
 class Quetzal:
     def __init__(self, memory_map: MemoryMap):
+        self.config = memory_map.config
         self.memory_map = memory_map
-        self.game_file = CONFIG[GAME_FILE_KEY]
-        self.filepath = ''
-        self.save_file = ''
         self.event_manager = EventManager()
-        self.event_manager.post_init += self.post_init_handler
-
-    def post_init_handler(self, sender, e: EventArgs):
-        self.game_file = CONFIG[GAME_FILE_KEY]
+        self.game_file = self.config.game_file
         filename = os.path.basename(self.game_file)
         base_filename = os.path.splitext(filename)[0]
         self.filepath = os.path.dirname(self.game_file)
@@ -38,17 +38,17 @@ class Quetzal:
             if self.interpreter_input('Overwrite existing file? (Y is affirmative) ') != 'y':
                 return False
         data_len = len(IFZS_ID)
-        header_data = CONFIG[RELEASE_NUMBER_KEY][:]
-        header_data += CONFIG[SERIAL_NUMBER_KEY]
-        header_data += CONFIG[CHECKSUM_KEY].to_bytes(2, "big")
+        header_data = self.config.release_number[:]
+        header_data += self.config.serial_number
+        header_data += self.config.checksum.to_bytes(2, "big")
         header_data += pc.to_bytes(3, "big")
-        header_chunk = IffChunk(HEADER_CHUNK, header_data)
+        header_chunk = IffChunk(IffType.HEADER, header_data)
         dynamic_memory = self.compress_dynamic_memory()
-        mem_chunk = IffChunk(COMPRESSED_MEMORY_CHUNK, dynamic_memory)
+        mem_chunk = IffChunk(IffType.COMPRESSED_MEMORY, dynamic_memory)
         stack_data = call_stack.serialize()
         if len(stack_data) == 0:
             return False
-        stack_chunk = IffChunk(CALL_STACK_CHUNK, stack_data)
+        stack_chunk = IffChunk(IffType.CALL_STACK, stack_data)
         for chunk in (header_chunk, mem_chunk, stack_chunk):
             data_len += len(chunk)
         try:
@@ -80,15 +80,15 @@ class Quetzal:
             if header != IFF_HEADER or form_type != IFZS_ID:
                 self.interpreter_prompt('Invalid save file!')
                 return False
-            bytes_read = 0
+            bytes_read = 8
             while bytes_read < data_len:
                 chunk = IffChunk.read(s)
                 bytes_read += len(chunk)
                 chunks[chunk.header] = chunk
         try:
-            header_chunk = chunks[HEADER_CHUNK]
-            mem_chunk = chunks[COMPRESSED_MEMORY_CHUNK]
-            stack_chunk = chunks[CALL_STACK_CHUNK]
+            header_chunk = chunks[IffType.HEADER.value]
+            mem_chunk = chunks[IffType.COMPRESSED_MEMORY.value]
+            stack_chunk = chunks[IffType.CALL_STACK.value]
             release_number = header_chunk.data[0:2]
             serial_number = header_chunk.data[2:8]
             checksum = int.from_bytes(header_chunk.data[8:10], "big")
@@ -97,9 +97,9 @@ class Quetzal:
         except Exception as err:
             # print(f'{err}')
             return False
-        if release_number != CONFIG[RELEASE_NUMBER_KEY] or \
-                serial_number != CONFIG[SERIAL_NUMBER_KEY] or \
-                checksum != CONFIG[CHECKSUM_KEY]:
+        if release_number != self.config.release_number or \
+                serial_number != self.config.serial_number or \
+                checksum != self.config.checksum:
             self.interpreter_prompt("Invalid save file!")
             return False
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
@@ -123,7 +123,7 @@ class Quetzal:
     # of bytes we can skip when restoring the dynamic memory).
     # Otherwise, write the result of the exclusive or.
     def compress_dynamic_memory(self) -> bytearray:
-        static_mem_ptr = CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]
+        static_mem_ptr = self.config.static_memory_base_addr
         result = [0] * static_mem_ptr
         result_ptr = 0
         with open(self.game_file, "rb") as s:
@@ -145,8 +145,9 @@ class Quetzal:
         return bytearray(result[:result_ptr])
 
     def uncompress_dynamic_memory(self, encoded_memory) -> bytearray:
+        static_mem_ptr = self.config.static_memory_base_addr
         with open(self.game_file, 'rb') as s:
-            dynamic_mem = bytearray(s.read(CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]))
+            dynamic_mem = bytearray(s.read(static_mem_ptr))
         mem_ptr = 0
         byte_ptr = 0
         while byte_ptr < len(encoded_memory):
@@ -179,19 +180,19 @@ class Quetzal:
 
 
 class IffChunk:
-    def __init__(self, header, data):
-        self.header = header[:4]
+    def __init__(self, header: IffType, data: bytes):
+        self.header = header.value[:4]
         self.data = data
 
     @classmethod
-    def read(cls, stream: BinaryIO):
+    def read(cls, stream: BinaryIO) -> 'IffChunk':
         header = ''.join([chr(b) for b in stream.read(4)])
         count = int.from_bytes(stream.read(4), "big")
         data = stream.read(count)
         # Pad byte.
         if count & 1 == 1:
-            stream.read(1)
-        return cls(header, data)
+            stream.read(1)        
+        return cls(IffType(header), data)
 
     def write(self, stream: BinaryIO):
         header_bytes = bytearray([ord(c) for c in self.header])

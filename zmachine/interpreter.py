@@ -2,24 +2,26 @@ import os
 import opcodes
 from typing import Tuple
 from abstract_interpreter import AbstractZMachineInterpreter
+from config import ZMachineConfig
+from constants import INPUT_BUFFER_LENGTH
 from memory import MemoryMap
 from object_table import ObjectTable
 from event import EventArgs, EventManager
 from text import TextUtils
 from quetzal import Quetzal
 from undo import UndoStack
-from stack import *
+from enums import WindowPosition, StatusType, RoutineType
+from stack import CallStack
 from error import *
-from config import *
 
 
 class ZMachineInterpreter(AbstractZMachineInterpreter):
-    def __init__(self, memory_map: MemoryMap, debug: bool = False):
+    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, debug: bool = False):
         self.memory_map = memory_map
+        self.config = config
+        self.pc = self.config.initial_pc
         self.text_utils = TextUtils(memory_map)
         self.quetzal = Quetzal(memory_map)
-        self._version = CONFIG[VERSION_NUMBER_KEY]
-        self.pc = CONFIG[INITIAL_PC_KEY]
         self._object_table = ObjectTable(self.memory_map)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
@@ -33,14 +35,14 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             self.event_manager.pre_read_input += self.pre_read_input_handler
         if debug:
             debug_file = 'debug.txt'
-            filepath = os.path.dirname(CONFIG[GAME_FILE_KEY])
+            filepath = os.path.dirname(self.config.game_file)
             self.debug_file = os.path.join(filepath, debug_file)
             with open(self.debug_file, 'w') as s:
                 s.write('')
 
     @property
     def version(self) -> int:
-        return self._version
+        return self.config.version
 
     @property
     def object_table(self) -> ObjectTable:
@@ -65,12 +67,12 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
 
     def do_verify(self) -> bool:
         checksum = 0
-        with open(CONFIG[GAME_FILE_KEY], "rb") as s:
+        with open(self.config.game_file, "rb") as s:
             s.seek(0x40)
-            for _ in range(0x40, CONFIG[FILE_LENGTH_KEY]):
+            for _ in range(0x40, self.config.file_length):
                 checksum += int.from_bytes(s.read(1), "big")
                 checksum &= 0xffff
-        return checksum == CONFIG[CHECKSUM_KEY]
+        return checksum == self.config.checksum
 
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
@@ -91,7 +93,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         global2 = self.get_global_var(2)
         location = self.get_object_text(location_id)
         # The status line should show score/moves or time, depending on bit 1 of flags1.
-        if self.status_line_type == STATUS_TYPE_SCORE:
+        if self.status_line_type == StatusType.SCORE:
             score, moves = ZMachineInterpreter.sign_uint16(global1), global2
             right_status = f'Score: {score}'.ljust(16, ' ') + f'Moves: {moves}'.ljust(11, ' ')
         else:
@@ -106,13 +108,13 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return location, right_status
 
     def do_restart(self):
-        static_mem_ptr = CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]
-        with open(CONFIG[GAME_FILE_KEY], "rb") as s:
+        static_mem_ptr = self.config.static_memory_base_addr
+        with open(self.config.game_file, "rb") as s:
             dynamic_mem = s.read(static_mem_ptr)
             self.memory_map.reset_dynamic_memory(dynamic_mem)
-        self.pc = CONFIG[INITIAL_PC_KEY]
+        self.pc = self.config.initial_pc
         self.call_stack.clear()
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=LOWER_WINDOW))
+        self.event_manager.erase_window.invoke(self, EventArgs(window_id=WindowPosition.LOWER))
 
     def do_save(self) -> bool:
         return self.quetzal.do_save(self.pc, self.call_stack)
@@ -128,7 +130,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         if len(call_stack_bytes) == 0:
             self.do_store(0)
             return
-        static_memory_base_addr = CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]
+        static_memory_base_addr = self.config.static_memory_base_addr
         dynamic_memory = self.memory_map[:static_memory_base_addr]
         self.undo_stack.push(dynamic_memory, call_stack_bytes, self.pc)
         self.do_store(1)
@@ -275,13 +277,13 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def get_global_var(self, index):
         if index < 0 or index >= 0xf0:
             raise Exception(f"Invalid global variable index: {index}")
-        addr = CONFIG[GLOBAL_VARS_TABLE_KEY] + index * 2
+        addr = self.config.global_vars_table_addr + index * 2
         return self.read_word(addr)
 
     def set_global_var(self, index, val):
         if index < 0 or index >= 0xf0:
             raise Exception(f"Invalid global variable index: {index}")
-        addr = CONFIG[GLOBAL_VARS_TABLE_KEY] + index * 2
+        addr = self.config.global_vars_table_addr + index * 2
         self.write_word(addr, val)
 
     def read_var(self, varnum):
@@ -307,9 +309,9 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         else:
             raise VariableOutOfRangeException(varnum)
 
-    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = ROUTINE_TYPE_STORE):
+    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = RoutineType.STORE):
         store_varnum = 0
-        if routine_type == ROUTINE_TYPE_STORE:
+        if routine_type == RoutineType.STORE:
             store_varnum = self.read_from_pc()
         return_pc = self.pc
         self.pc = call_addr
@@ -338,9 +340,9 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return_pc = stack_frame.return_pc
         routine_type = stack_frame.routine_type
         self.pc = return_pc
-        if routine_type == ROUTINE_TYPE_STORE:
+        if routine_type == RoutineType.STORE:
             self.write_var(store_varnum, retval)
-        elif routine_type == ROUTINE_TYPE_DIRECT_CALL:
+        elif routine_type == RoutineType.DIRECT_CALL:
             self.stack_push(retval)
 
     def do_direct_call(self, call_addr: int) -> int:
@@ -350,7 +352,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         if call_addr == 0:
             return True
         frame_id = self.call_stack.catch()
-        self.do_routine(call_addr, tuple[int](), ROUTINE_TYPE_DIRECT_CALL)
+        self.do_routine(call_addr, tuple[int](), RoutineType.DIRECT_CALL)
         while self.call_stack.catch() > frame_id:
             self.run_instruction()
         if self.call_stack.catch() != frame_id:

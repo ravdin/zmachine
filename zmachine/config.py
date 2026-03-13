@@ -1,111 +1,90 @@
-SUPPORTED_VERSIONS = (3, 4, 5)
-INTERPRETER_REVISION = 0x101 # Write this as revision 1.1
-# TODO: Set from the command line?
-# For now, tell the game it's played on an DEC system, with a version number set to 'A'.
-INTERPRETER_NUMBER = 0x141
-MAX_STACK_LENGTH = 1024
-INPUT_BUFFER_LENGTH = 200
-LOWER_WINDOW = 0
-UPPER_WINDOW = 1
+from dataclasses import dataclass, field
+from constants import SUPPORTED_VERSIONS
+from error import InvalidGameFileException
 
-TEXT_STYLE_ROMAN = 0
-TEXT_STYLE_REVERSE = 1
-TEXT_STYLE_BOLD = 2
-TEXT_STYLE_ITALIC = 4
-TEXT_STYLE_FIXED_PITCH = 8
+@dataclass(frozen=True)
+class ZMachineConfig:
+    """Configuration for a Z-Machine interpreter instance."""
 
-COLOR_BLACK = 2
-COLOR_RED = 3
-COLOR_GREEN = 4
-COLOR_YELLOW = 5
-COLOR_BLUE = 6
-COLOR_MAGENTA = 7
-COLOR_CYAN = 8
-COLOR_WHITE = 9
+    game_file: str
+    """ Path to the game file."""
+    debug: bool = False
+    """ If true, print instruction execution to debug.txt"""
 
-DEFAULT_FOREGROUND_COLOR = COLOR_WHITE
-DEFAULT_BACKGROUND_COLOR = COLOR_BLACK
+    # Header values
+    version: int = 0
+    """ Z-Machine version number (3, 4, or 5)."""
+    release_number: bytes = b'\x00\x00'
+    """ Release number of the game file."""
+    high_memory_base_addr: int = 0
+    """ Location of the first byte of high memory. """
+    initial_pc: int = 0
+    """ Address of the first instruction to execute. """
+    dictionary_table_addr: int = 0
+    """ Location of the dictionary table."""
+    object_table_addr: int = 0
+    """ Location of the object table."""
+    global_vars_table_addr: int = 0
+    """ Location of the global variables table."""
+    static_memory_base_addr: int = 0
+    """ Location of the first byte of static memory. """
+    serial_number: bytes = b'\x00' * 6
+    """ Serial number of the game file, used for copy protection. """
+    abbreviation_table_addr: int = 0
+    """ Location of the abbreviation table."""
+    file_length: int = 0
+    """ Length of the game file in bytes. """
+    checksum: int = 0
+    """ Checksum of the game file, used for copy protection. """
+    interrupt_zchars: tuple[int] = field(default_factory=tuple)
+    """ Terminating characters (version 5 and above)"""
 
-UP_ARROW_CHAR = 129
-DOWN_ARROW_CHAR = 130
-LEFT_ARROW_CHAR = 131
-RIGHT_ARROW_CHAR = 132
-F1_CHAR = 133
-F2_CHAR = 134
-F3_CHAR = 135
-F4_CHAR = 136
-F5_CHAR = 137
-F6_CHAR = 138
-F7_CHAR = 139
-F8_CHAR = 140
-F9_CHAR = 141
-F10_CHAR = 142
-F11_CHAR = 143
-F12_CHAR = 144
+    @classmethod
+    def from_game_file(cls, game_file: str, debug: bool = False) -> 'ZMachineConfig':
+        with open(game_file, 'rb') as s:
+            game_data = s.read()
+        version = game_data[0]
+        if version not in SUPPORTED_VERSIONS:
+            if 0 < version <= 6:
+                raise InvalidGameFileException(f"Unsupported Z-Machine version: v{version}")
+            else:
+                raise InvalidGameFileException(f"Unrecognized Z-Machine file")    
 
-ESCAPE_SEQUENCE_UP_ARROW = (91, 65)
-ESCAPE_SEQUENCE_DOWN_ARROW = (91, 66)
-ESCAPE_SEQUENCE_LEFT_ARROW = (91, 67)
-ESCAPE_SEQUENCE_RIGHT_ARROW = (91, 68)
-ESCAPE_SEQUENCE_F1 = (79, 80)
-ESCAPE_SEQUENCE_F2 = (79, 81)
-ESCAPE_SEQUENCE_F3 = (79, 82)
-ESCAPE_SEQUENCE_F4 = (79, 83)
-ESCAPE_SEQUENCE_F5 = (91, 49, 53, 126)
-ESCAPE_SEQUENCE_F6 = (91, 49, 55, 126)
-ESCAPE_SEQUENCE_F7 = (91, 49, 56, 126)
-ESCAPE_SEQUENCE_F8 = (91, 49, 57, 126)
-ESCAPE_SEQUENCE_F9 = (91, 50, 48, 126)
-ESCAPE_SEQUENCE_F10 = (91, 50, 49, 126)
-ESCAPE_SEQUENCE_F11 = (91, 50, 51, 126)
-ESCAPE_SEQUENCE_F12 = (91, 50, 52, 126)
+        release_number = game_data[0x2:0x4]
+        high_memory_base_addr = int.from_bytes(game_data[0x4:0x6], "big")
+        initial_pc = int.from_bytes(game_data[0x6:0x8], "big")
+        dictionary_table_addr = int.from_bytes(game_data[0x8:0xa], "big")
+        object_table_addr = int.from_bytes(game_data[0xa:0xc], "big")
+        global_vars_table_addr = int.from_bytes(game_data[0xc:0xe], "big")
+        static_memory_base_addr = int.from_bytes(game_data[0xe:0x10], "big")
+        serial_number = game_data[0x12:0x18]
+        abbreviation_table_addr = int.from_bytes(game_data[0x18:0x1a], "big")
+        file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2)
+        checksum = int.from_bytes(game_data[0x1c:0x1e], "big")
+        interrupt_zchars = []
+        if version >= 5:
+            zchars_addr = int.from_bytes(game_data[0x2e:0x30], "big")
+            zchar = game_data[zchars_addr]
+            while zchar != 0:
+                interrupt_zchars += [zchar]
+                zchars_addr += 1
+                zchar = game_data[zchars_addr]
 
-STATUS_TYPE_SCORE = 0
-STATUS_TYPE_TIME = 1
-ROUTINE_TYPE_STORE = 0
-ROUTINE_TYPE_DISCARD = 1
-ROUTINE_TYPE_DIRECT_CALL = 2
-IFF_HEADER = bytearray('FORM'.encode('UTF-8'))
-IFZS_ID = bytearray('IFZS'.encode('UTF-8'))
-HEADER_CHUNK = 'IFhd'
-COMPRESSED_MEMORY_CHUNK = 'CMem'
-CALL_STACK_CHUNK = 'Stks'
-
-VERSION_NUMBER_KEY = 'version_number'
-RELEASE_NUMBER_KEY = 'release_number'
-HIGH_MEMORY_BASE_ADDR_KEY = 'high_memory_base_addr'
-INITIAL_PC_KEY = 'initial_pc'
-DICTIONARY_TABLE_KEY = 'dictionary_table'
-OBJECT_TABLE_KEY = 'object_table'
-GLOBAL_VARS_TABLE_KEY = 'global_vars_table'
-STATIC_MEMORY_BASE_ADDR_KEY = 'static_memory_base_addr'
-SERIAL_NUMBER_KEY = 'serial_number'
-ABBREVIATION_TABLE_KEY = 'abbreviation_table'
-FILE_LENGTH_KEY = 'file_length'
-CHECKSUM_KEY = 'checksum'
-
-GAME_FILE_KEY = 'game_file'
-SCREEN_HEIGHT_KEY = 'screen_height'
-SCREEN_WIDTH_KEY = 'screen_width'
-INTERRUPT_ZCHARS_KEY = 'interrupt_zchars'
-
-
-CONFIG = {
-    VERSION_NUMBER_KEY: 0,
-    RELEASE_NUMBER_KEY: bytearray(),
-    HIGH_MEMORY_BASE_ADDR_KEY: 0,
-    INITIAL_PC_KEY: 0,
-    DICTIONARY_TABLE_KEY: 0,
-    OBJECT_TABLE_KEY: 0,
-    GLOBAL_VARS_TABLE_KEY: 0,
-    STATIC_MEMORY_BASE_ADDR_KEY: 0,
-    SERIAL_NUMBER_KEY: bytearray(),
-    ABBREVIATION_TABLE_KEY: 0,
-    FILE_LENGTH_KEY: 0,
-    CHECKSUM_KEY: 0,
-
-    GAME_FILE_KEY: '',
-    SCREEN_HEIGHT_KEY: 0,
-    SCREEN_WIDTH_KEY: 0,
-    INTERRUPT_ZCHARS_KEY: []
-}
+        return cls(
+            game_file = game_file,
+            debug = debug,
+            version = version,
+            release_number = release_number,
+            high_memory_base_addr = high_memory_base_addr,
+            initial_pc = initial_pc,
+            dictionary_table_addr = dictionary_table_addr,
+            object_table_addr = object_table_addr,
+            global_vars_table_addr = global_vars_table_addr,
+            static_memory_base_addr = static_memory_base_addr,
+            serial_number = serial_number,
+            abbreviation_table_addr = abbreviation_table_addr,
+            file_length = file_length,
+            checksum = checksum,
+            interrupt_zchars = tuple(interrupt_zchars)
+        )
+    

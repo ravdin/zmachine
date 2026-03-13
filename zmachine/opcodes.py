@@ -3,19 +3,19 @@ import time
 from typing import Callable, Dict, Any
 from functools import wraps
 from abstract_interpreter import AbstractZMachineInterpreter
-from config import ROUTINE_TYPE_DISCARD
+from enums import RoutineType
 from event import EventArgs
 from error import *
 
 
-def get_opcodes(version) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+def get_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_all_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-def get_extended_opcodes(version) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+def get_extended_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_extended_opcodes())
@@ -632,7 +632,7 @@ def op_call_vn(zm, *operands):
     if len(operands) == 0 or operands[0] == 0:
         return
     call_addr, args = zm.unpack_addr(operands[0]), operands[1:]
-    zm.do_routine(call_addr, args, ROUTINE_TYPE_DISCARD)
+    zm.do_routine(call_addr, args, RoutineType.DISCARD)
 
 
 def op_set_color(zm, *operands):

@@ -1,5 +1,4 @@
 from memory import MemoryMap
-from config import *
 from typing import List
 from error import *
 
@@ -11,6 +10,7 @@ class TextUtils:
 
     def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
+        self.config = memory_map.config
         self.separator_chars = self.get_separator_chars()
 
     def read_byte(self, ptr):
@@ -26,7 +26,7 @@ class TextUtils:
         return num
 
     def get_separator_chars(self):
-        ptr = CONFIG[DICTIONARY_TABLE_KEY]
+        ptr = self.config.dictionary_table_addr
         num_separators = self.read_byte(ptr)
         return [chr(self.read_byte(ptr + i + 1)) for i in range(num_separators)]
 
@@ -66,11 +66,11 @@ class TextUtils:
                 entry_ptr += entry_length
             return 0
 
-        encoded_len = 4 if CONFIG[VERSION_NUMBER_KEY] <= 3 else 6
+        encoded_len = 4 if self.config.version <= 3 else 6
         encoded = self.zscii_encode(text, encoded_len)
         search_method = binary_search
         if dictionary_addr == 0:
-            dictionary_addr = CONFIG[DICTIONARY_TABLE_KEY]
+            dictionary_addr = self.config.dictionary_table_addr
         num_separators = self.read_byte(dictionary_addr)
         entry_length = self.read_byte(dictionary_addr + num_separators + 1)
         num_entries = self.read_int16(dictionary_addr + num_separators + 2)
@@ -160,7 +160,7 @@ class TextUtils:
 
     def abbreviation_lookup(self, index):
         result = []
-        addr = self.memory_map.word_addr(CONFIG[ABBREVIATION_TABLE_KEY] + index * 2)
+        addr = self.memory_map.word_addr(self.config.abbreviation_table_addr + index * 2)
         self.read_zchars(addr, result)
         return result
 

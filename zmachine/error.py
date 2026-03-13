@@ -1,3 +1,7 @@
+class InvalidGameFileException(Exception):
+    def __init__(self, message):
+        super().__init__(f"Invalid game file: {message}")
+
 class ZSCIIException(Exception):
     def __init__(self, message):
         self.message = message
