@@ -1,13 +1,13 @@
 from memory import MemoryMap
 from error import *
-from config import *
 
 
 class ObjectTable:
     def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
-        self.version = CONFIG[VERSION_NUMBER_KEY]
-        self.OBJECT_TABLE = CONFIG[OBJECT_TABLE_KEY]
+        self.config = memory_map.config
+        self.version = self.config.version
+        self.OBJECT_TABLE = self.config.object_table_addr
         self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
         self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
@@ -41,7 +41,7 @@ class ObjectTable:
         # was encoded instead of the object ID. This would put the object address outside of the
         # bounds of the file. The official interpreter would return 0 in this case, which
         # accidentally works.
-        if obj_addr > CONFIG[STATIC_MEMORY_BASE_ADDR_KEY]:
+        if obj_addr > self.config.static_memory_base_addr:
             obj_addr = 0
         return obj_addr
 

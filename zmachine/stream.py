@@ -1,8 +1,8 @@
 from memory import MemoryMap
 from screen import BaseScreen
 from event import EventManager, EventArgs
-from error import *
-from config import *
+from enums import WindowPosition
+from error import StreamException
 import os
 
 
@@ -45,7 +45,7 @@ class OutputStream:
     def __init__(self, is_active: bool = False):
         self.is_active = is_active
         self.event_manager = EventManager()
-        self.active_window = LOWER_WINDOW
+        self.active_window = WindowPosition.LOWER
         self.buffer_mode = True
         self.event_manager.set_window += self.set_window_handler
         self.event_manager.set_buffer_mode += self.set_buffer_mode_handler
@@ -75,7 +75,7 @@ class ScreenStream(OutputStream):
 
     def write(self, text: str, newline: bool):
         if self.is_active:
-            if self.buffer_mode and self.active_window == LOWER_WINDOW:
+            if self.buffer_mode and self.active_window == WindowPosition.LOWER:
                 self.screen.write_to_buffer(text, newline)
             else:
                 self.screen.print_to_active_window(text, newline)
@@ -86,6 +86,7 @@ class TranscriptStream(OutputStream):
 
     def __init__(self, memory_map: MemoryMap):
         super().__init__()
+        self.config = memory_map.config
         self.buffer = ['\0'] * self._BUFFER_LENGTH
         self.buffer_ptr = 0
         self.script_full_path = None
@@ -104,7 +105,7 @@ class TranscriptStream(OutputStream):
 
     def write(self, text: str, newline: bool):
         self.is_active = self.memory_map.transcript_active_flag
-        if not self.is_active or self.active_window != LOWER_WINDOW:
+        if not self.is_active or self.active_window != WindowPosition.LOWER:
             return
         if self.script_full_path is None:
             self.script_full_path = self.prompt_transcript_file()
@@ -137,7 +138,7 @@ class TranscriptStream(OutputStream):
     def prompt_transcript_file(self) -> str:
         # This function should not be called more than once in a game session.
         if self.transcript_full_path is None:
-            game_file = CONFIG[GAME_FILE_KEY]
+            game_file = self.config.game_file
             filepath = os.path.dirname(game_file)
             filename = os.path.basename(game_file)
             base_filename = os.path.splitext(filename)[0]

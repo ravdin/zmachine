@@ -58,10 +58,9 @@ class Event:
 
 
 class EventManager(metaclass=SingletonMeta):
+    # TODO: Refactor to remove singleton pattern and allow multiple event managers for different interpreter instances.
     def __init__(self):
         self._attributes: Dict[str, Event] = {}
-        # This event is raised after all components have been initialized.
-        self.post_init = Event()
         # Write output to active output streams.
         self.write_to_streams = Event()
         # Write unbuffered output to the active screen window.

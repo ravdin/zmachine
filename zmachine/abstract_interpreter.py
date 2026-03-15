@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 from event import EventManager
 from object_table import ObjectTable
-from config import ROUTINE_TYPE_STORE
+from enums import RoutineType
 
 
 class AbstractZMachineInterpreter(ABC):
@@ -62,7 +62,7 @@ class AbstractZMachineInterpreter(ABC):
         pass
 
     @abstractmethod
-    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = ROUTINE_TYPE_STORE):
+    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = RoutineType.STORE):
         pass
 
     @abstractmethod

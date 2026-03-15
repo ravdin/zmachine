@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 from event import EventManager, EventArgs
-from config import *
+from enums import WindowPosition, TextStyle
+from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 
 class Window:
@@ -21,9 +22,6 @@ class Window:
 
 
 class ScreenAdapter(ABC):
-    def __init__(self):
-        pass
-
     @property
     @abstractmethod
     def height(self) -> int:
@@ -156,9 +154,9 @@ class BaseScreen:
 
     def set_window_handler(self, sender, e: EventArgs):
         window_id = e.window_id
-        if window_id == LOWER_WINDOW:
+        if window_id == WindowPosition.LOWER:
             self.set_active_window(self.lower_window)
-        elif window_id == UPPER_WINDOW:
+        elif window_id == WindowPosition.UPPER:
             self.flush_buffer(self.active_window)
             self.set_active_window(self.upper_window)
 
@@ -177,9 +175,9 @@ class BaseScreen:
             self.output_line_count = 0
             self.split_window(0)
             self.reset_cursor(self.lower_window)
-        elif window_id == LOWER_WINDOW:
+        elif window_id == WindowPosition.LOWER:
             self.erase(self.lower_window)
-        elif window_id == UPPER_WINDOW:
+        elif window_id == WindowPosition.UPPER:
             self.erase(self.upper_window)
         self.screen_adapter.move_cursor(self.active_window.y_cursor, self.active_window.x_cursor)
         self.screen_adapter.refresh()
@@ -373,7 +371,7 @@ class ScreenV3(BaseScreen):
     def refresh_status_line_handler(self, sender, event_args: EventArgs):
         y, x = self.screen_adapter.get_coordinates()
         self.move_cursor(0, 0)
-        self.screen_adapter.apply_style_attributes(TEXT_STYLE_REVERSE)
+        self.screen_adapter.apply_style_attributes(TextStyle.REVERSE)
         self.write_to_screen(' ' * self.width)
         location = event_args.location
         right_status = event_args.right_status
@@ -381,7 +379,7 @@ class ScreenV3(BaseScreen):
         self.write_to_screen(location)
         self.move_cursor(0, self.width - len(right_status) - 3)
         self.write_to_screen(right_status)
-        self.screen_adapter.apply_style_attributes(TEXT_STYLE_ROMAN)
+        self.screen_adapter.apply_style_attributes(TextStyle.ROMAN)
         self.move_cursor(y, x)
 
 
@@ -389,8 +387,6 @@ class ScreenV4(BaseScreen):
     def __init__(self, screen_adapter: ScreenAdapter):
         super().__init__(screen_adapter)
         self.reset_cursor(self.lower_window)
-        CONFIG[SCREEN_HEIGHT_KEY] = screen_adapter.height
-        CONFIG[SCREEN_WIDTH_KEY] = screen_adapter.width
 
     def register_delegates(self):
         super().register_delegates()
@@ -417,8 +413,8 @@ class ScreenV4(BaseScreen):
     def set_text_style_handler(self, sender, e: EventArgs):
         self.flush_buffer(self.active_window)
         style_attribute = e.style
-        if style_attribute == TEXT_STYLE_ROMAN:
-            self.active_window.style_attributes = TEXT_STYLE_ROMAN
+        if style_attribute == TextStyle.ROMAN:
+            self.active_window.style_attributes = TextStyle.ROMAN
         else:
             self.active_window.style_attributes |= e.style
 
@@ -457,7 +453,7 @@ class ScreenV5(ScreenV4):
             y += 1
 
     def erase_window_handler(self, sender, e: EventArgs):
-        self.lower_window.style_attributes = TEXT_STYLE_ROMAN
+        self.lower_window.style_attributes = TextStyle.ROMAN
         super().erase_window_handler(sender, e)
 
     def reset_cursor(self, window: Window):

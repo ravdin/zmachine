@@ -1,54 +1,38 @@
 import curses
 from typing import Callable
-from config import *
 from screen import ScreenAdapter, Window
+from enums import TextStyle, Color, TerminalEscape
+from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
+from config import ZMachineConfig
 
 
 class CursesAdapter(ScreenAdapter):
-    ZSCII_INPUT_HOTKEYS = {
-        ESCAPE_SEQUENCE_UP_ARROW: UP_ARROW_CHAR,
-        ESCAPE_SEQUENCE_DOWN_ARROW: DOWN_ARROW_CHAR,
-        ESCAPE_SEQUENCE_LEFT_ARROW: LEFT_ARROW_CHAR,
-        ESCAPE_SEQUENCE_RIGHT_ARROW: RIGHT_ARROW_CHAR,
-        ESCAPE_SEQUENCE_F1: F1_CHAR,
-        ESCAPE_SEQUENCE_F2: F2_CHAR,
-        ESCAPE_SEQUENCE_F3: F3_CHAR,
-        ESCAPE_SEQUENCE_F4: F4_CHAR,
-        ESCAPE_SEQUENCE_F5: F5_CHAR,
-        ESCAPE_SEQUENCE_F6: F6_CHAR,
-        ESCAPE_SEQUENCE_F7: F7_CHAR,
-        ESCAPE_SEQUENCE_F8: F8_CHAR,
-        ESCAPE_SEQUENCE_F9: F9_CHAR,
-        ESCAPE_SEQUENCE_F10: F10_CHAR,
-        ESCAPE_SEQUENCE_F11: F11_CHAR,
-        ESCAPE_SEQUENCE_F12: F12_CHAR
-    }
-
     CURSES_TEXT_STYLES = {
-        TEXT_STYLE_REVERSE: curses.A_REVERSE,
-        TEXT_STYLE_BOLD: curses.A_BOLD,
+        TextStyle.REVERSE: curses.A_REVERSE,
+        TextStyle.BOLD: curses.A_BOLD,
         # Should be "italic" but is not supported by this version of curses.
-        TEXT_STYLE_ITALIC: curses.A_UNDERLINE
+        TextStyle.ITALIC: curses.A_UNDERLINE
     }
 
     COLORS = {
-        COLOR_BLACK: curses.COLOR_BLACK,
-        COLOR_RED: curses.COLOR_RED,
-        COLOR_GREEN: curses.COLOR_GREEN,
-        COLOR_YELLOW: curses.COLOR_YELLOW,
-        COLOR_BLUE: curses.COLOR_BLUE,
-        COLOR_MAGENTA: curses.COLOR_MAGENTA,
-        COLOR_CYAN: curses.COLOR_CYAN,
-        COLOR_WHITE: curses.COLOR_WHITE
+        Color.BLACK: curses.COLOR_BLACK,
+        Color.RED: curses.COLOR_RED,
+        Color.GREEN: curses.COLOR_GREEN,
+        Color.YELLOW: curses.COLOR_YELLOW,
+        Color.BLUE: curses.COLOR_BLUE,
+        Color.MAGENTA: curses.COLOR_MAGENTA,
+        Color.CYAN: curses.COLOR_CYAN,
+        Color.WHITE: curses.COLOR_WHITE
     }
     CURSES_COLORS = {v: k for k, v in COLORS.items()}
 
-    def __init__(self):
+    def __init__(self, config: ZMachineConfig):
         super().__init__()
         # noinspection PyTypeChecker
         self.main_screen: curses.window = None
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
+        self.config = config
         curses.wrapper(self.build)
 
     def build(self, main_screen: curses.window):
@@ -178,8 +162,9 @@ class CursesAdapter(ScreenAdapter):
                         break
                     escape_sequence += [esc_char]
                 self.main_screen.timeout(timeout_val)
-                if tuple(escape_sequence) in self.ZSCII_INPUT_HOTKEYS.keys():
-                    c = self.ZSCII_INPUT_HOTKEYS[tuple(escape_sequence)]
+                terminal_mapping = TerminalEscape.lookup_sequence(tuple(escape_sequence))
+                if terminal_mapping is not None:
+                    c = terminal_mapping.zscii_char
                 elif len(escape_sequence) > 0:
                     # Unrecognized escape sequence, ignore.
                     continue
@@ -187,7 +172,7 @@ class CursesAdapter(ScreenAdapter):
                 # and stop here.
                 # If the input buffer length is 1 (read_char), write the character to the buffer.
                 # Otherwise, ignore the character.
-                if c in CONFIG[INTERRUPT_ZCHARS_KEY]:
+                if c in self.config.interrupt_zchars:
                     text_buffer[buffer_pos] = c
                     break
                 if len(text_buffer) == 1:
