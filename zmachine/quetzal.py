@@ -12,10 +12,10 @@ class IffType(Enum):
     CALL_STACK = 'Stks'
 
 class Quetzal:
-    def __init__(self, memory_map: MemoryMap):
+    def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
         self.config = memory_map.config
         self.memory_map = memory_map
-        self.event_manager = EventManager()
+        self.event_manager = event_manager
         self.game_file = self.config.game_file
         filename = os.path.basename(self.game_file)
         base_filename = os.path.splitext(filename)[0]

@@ -16,13 +16,14 @@ from error import *
 
 
 class ZMachineInterpreter(AbstractZMachineInterpreter):
-    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, debug: bool = False):
+    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, event_manager: EventManager, debug: bool = False):
         self.memory_map = memory_map
         self.config = config
+        self.event_manager = event_manager
         self.pc = self.config.initial_pc
         self.text_utils = TextUtils(memory_map)
-        self.quetzal = Quetzal(memory_map)
-        self._object_table = ObjectTable(self.memory_map)
+        self.quetzal = Quetzal(memory_map, event_manager)
+        self._object_table = ObjectTable(memory_map)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
         self.call_stack = CallStack()
@@ -47,10 +48,6 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     @property
     def object_table(self) -> ObjectTable:
         return self._object_table
-
-    @property
-    def event_manager(self) -> EventManager:
-        return self._event_manager
 
     def do_run(self):
         try:
@@ -492,6 +489,37 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         encoded = self.text_utils.zscii_encode(text, byte_len)
         for i in range(byte_len):
             self.write_byte(coded_buffer + i, encoded[i])
+
+    def do_split_window(self, lines: int):
+        self.event_manager.split_window.invoke(self, EventArgs(lines=lines))
+
+    def do_set_window(self, window_id: int):
+        self.event_manager.set_window.invoke(self, EventArgs(window_id=window_id))
+    
+    def do_erase_window(self, window_id: int):
+        self.event_manager.erase_window.invoke(self, EventArgs(window_id=window_id))
+    
+    def do_set_cursor(self, y: int, x: int):
+        self.event_manager.set_cursor.invoke(self, EventArgs(y=y, x=x))
+
+    def do_set_text_style(self, style: int):
+        self.event_manager.set_text_style.invoke(self, EventArgs(style=style))
+
+    def do_set_buffer_mode(self, mode: bool):
+        self.event_manager.set_buffer_mode.invoke(self, EventArgs(mode=mode))
+
+    def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+        event_args = EventArgs(stream_id=stream_id)
+        if stream_id == 3:
+            event_args.table_addr = table_addr
+        self.event_manager.select_output_stream.invoke(self, event_args)
+
+    def do_sound_effect(self, type):
+        self.event_manager.sound_effect.invoke(self, EventArgs(type=type))
+
+    def do_set_color(self, foreground_color: int, background_color: int):
+        e = EventArgs(foreground_color=foreground_color, background_color=background_color)
+        return self.event_manager.set_color.invoke(self, e)
 
     def write_to_output_streams(self, text, newline=False):
         event_args = EventArgs(text=text, newline=newline)

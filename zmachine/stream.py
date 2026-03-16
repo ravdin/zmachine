@@ -7,18 +7,22 @@ import os
 
 
 class OutputStreamManager:
-    def __init__(self, screen: BaseScreen, memory_map: MemoryMap):
+    def __init__(self, screen: BaseScreen, memory_map: MemoryMap, event_manager: EventManager):
         self.screen_stream = ScreenStream(screen)
-        self.transcript_stream = TranscriptStream(memory_map)
+        self.transcript_stream = TranscriptStream(memory_map, event_manager)
         self.memory_stream = MemoryStream(memory_map)
-        self.event_manager = EventManager()
-        self.event_manager.write_to_streams += self.write_to_streams_handler
-        self.event_manager.select_output_stream += self.select_stream_handler
         self.streams = {
             1: self.screen_stream,
             2: self.transcript_stream,
             3: self.memory_stream
         }
+        self.register_delegates(event_manager)
+
+    def register_delegates(self, event_manager: EventManager):
+        event_manager.write_to_streams += self.write_to_streams_handler
+        event_manager.select_output_stream += self.select_stream_handler
+        for stream in self.streams.values():
+            stream.register_delegates(event_manager)
 
     def select_stream_handler(self, sender, e: EventArgs):
         stream_id = e.stream_id
@@ -44,11 +48,8 @@ class OutputStreamManager:
 class OutputStream:
     def __init__(self, is_active: bool = False):
         self.is_active = is_active
-        self.event_manager = EventManager()
         self.active_window = WindowPosition.LOWER
         self.buffer_mode = True
-        self.event_manager.set_window += self.set_window_handler
-        self.event_manager.set_buffer_mode += self.set_buffer_mode_handler
 
     def open(self, **kwargs):
         self.is_active = True
@@ -58,6 +59,10 @@ class OutputStream:
 
     def close(self):
         self.is_active = False
+
+    def register_delegates(self, event_manager: EventManager):
+        event_manager.set_window += self.set_window_handler
+        event_manager.set_buffer_mode += self.set_buffer_mode_handler
 
     def set_window_handler(self, sender, e: EventArgs):
         self.active_window = e.window_id
@@ -84,18 +89,16 @@ class ScreenStream(OutputStream):
 class TranscriptStream(OutputStream):
     _BUFFER_LENGTH = 1024
 
-    def __init__(self, memory_map: MemoryMap):
+    def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
         super().__init__()
         self.config = memory_map.config
+        self.event_manager = event_manager
         self.buffer = ['\0'] * self._BUFFER_LENGTH
         self.buffer_ptr = 0
         self.script_full_path = None
         self.script_file_mode = 'w'
         self.transcript_full_path = None
         self.memory_map = memory_map
-        self.event_manager.pre_read_input += self.pre_read_input_handler
-        self.event_manager.post_read_input += self.post_read_input_handler
-        self.event_manager.quit += self.quit_handler
 
     def open(self, **kwargs):
         super().open(**kwargs)
@@ -123,6 +126,12 @@ class TranscriptStream(OutputStream):
     def close(self):
         super().close()
         self.memory_map.transcript_active_flag = False
+
+    def register_delegates(self, event_manager):
+        super().register_delegates(event_manager)
+        event_manager.pre_read_input += self.pre_read_input_handler
+        event_manager.post_read_input += self.post_read_input_handler
+        event_manager.quit += self.quit_handler
 
     def flush_buffer(self):
         # File output is not word wrapped.

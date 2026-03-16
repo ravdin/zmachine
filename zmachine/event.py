@@ -1,19 +1,5 @@
 from typing import Callable, List, Dict, Any
 
-
-class SingletonMeta(type):
-    """
-    A Singleton metaclass that creates a single instance of a class.
-    """
-    _instances: Dict[type, "SingletonMeta"] = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-        return cls._instances[cls]
-
-
 class EventArgs:
     def __init__(self, **kwargs):
         self._attributes: Dict[str, Any] = kwargs.copy()
@@ -57,10 +43,8 @@ class Event:
             delegate(sender, e)
 
 
-class EventManager(metaclass=SingletonMeta):
-    # TODO: Refactor to remove singleton pattern and allow multiple event managers for different interpreter instances.
+class EventManager():
     def __init__(self):
-        self._attributes: Dict[str, Event] = {}
         # Write output to active output streams.
         self.write_to_streams = Event()
         # Write unbuffered output to the active screen window.
@@ -79,8 +63,6 @@ class EventManager(metaclass=SingletonMeta):
         self.interpreter_prompt = Event()
         # Raised when the user has entered input from an interpreter prompt.
         self.interpreter_input = Event()
-        # Get a list of zchars in the input stream that should terminate a read op (version 5+).
-        self.get_interrupt_zchars = Event()
         # Set the active screen window.
         self.set_window = Event()
         # Turn the buffer mode on or off.
@@ -101,18 +83,3 @@ class EventManager(metaclass=SingletonMeta):
         self.set_color = Event()
         # Raised when quitting the game.
         self.quit = Event()
-
-    @classmethod
-    def initialize_events(cls):
-        return cls()
-
-    def __getattr__(self, name):
-        if name in self._attributes:
-            return self._attributes[name]
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-
-    def __setattr__(self, name: str, value: Event):
-        if name == '_attributes':
-            super().__setattr__(name, value)
-        else:
-            self._attributes[name] = value

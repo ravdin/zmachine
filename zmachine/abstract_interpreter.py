@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
-from event import EventManager
 from object_table import ObjectTable
 from enums import RoutineType
 
@@ -18,11 +17,6 @@ class AbstractZMachineInterpreter(ABC):
     @property
     @abstractmethod
     def object_table(self) -> ObjectTable:
-        pass
-
-    @property
-    @abstractmethod
-    def event_manager(self) -> EventManager:
         pass
 
     @abstractmethod
@@ -154,4 +148,40 @@ class AbstractZMachineInterpreter(ABC):
 
     @abstractmethod
     def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
+        pass
+
+    @abstractmethod
+    def do_split_window(self, lines: int):
+        pass
+
+    @abstractmethod
+    def do_set_window(self, window_id: int):
+        pass
+
+    @abstractmethod
+    def do_erase_window(self, window_id: int):
+        pass
+
+    @abstractmethod
+    def do_set_cursor(self, y: int, x: int):
+        pass
+
+    @abstractmethod
+    def do_set_text_style(self, style: int):
+        pass
+
+    @abstractmethod
+    def do_set_buffer_mode(self, mode: bool):
+        pass
+
+    @abstractmethod
+    def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+        pass
+
+    @abstractmethod
+    def do_sound_effect(self, type: int):
+        pass
+
+    @abstractmethod
+    def do_set_color(self, foreground_color: int, background_color: int):
         pass
