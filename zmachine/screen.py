@@ -103,7 +103,7 @@ class ScreenAdapter(ABC):
 class BaseScreen:
     _TEXT_BUFFER_LENGTH = 1024
 
-    def __init__(self, screen_adapter: ScreenAdapter):
+    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
         self.screen_adapter = screen_adapter
         self.height = screen_adapter.height
         self.width = screen_adapter.width
@@ -113,21 +113,20 @@ class BaseScreen:
         self.output_line_count = 0
         self.text_buffer = ['\0'] * self._TEXT_BUFFER_LENGTH
         self.text_buffer_ptr = 0
-        self.event_manager = EventManager()
-        self.register_delegates()
+        self.register_delegates(event_manager)
 
-    def register_delegates(self):
-        self.event_manager.pre_read_input += self.pre_read_input_handler
-        self.event_manager.read_input += self.read_input_handler
-        self.event_manager.set_window += self.set_window_handler
-        self.event_manager.split_window += self.split_window_handler
-        self.event_manager.erase_window += self.erase_window_handler
-        self.event_manager.print_to_active_window += self.print_to_active_window_handler
-        self.event_manager.interpreter_prompt += self.interpreter_prompt_handler
-        self.event_manager.interpreter_input += self.interpreter_input_handler
-        self.event_manager.select_output_stream += self.select_output_stream_handler
-        self.event_manager.sound_effect += self.sound_effect_handler
-        self.event_manager.quit += self.quit_handler
+    def register_delegates(self, event_manager: EventManager):
+        event_manager.pre_read_input += self.pre_read_input_handler
+        event_manager.read_input += self.read_input_handler
+        event_manager.set_window += self.set_window_handler
+        event_manager.split_window += self.split_window_handler
+        event_manager.erase_window += self.erase_window_handler
+        event_manager.print_to_active_window += self.print_to_active_window_handler
+        event_manager.interpreter_prompt += self.interpreter_prompt_handler
+        event_manager.interpreter_input += self.interpreter_input_handler
+        event_manager.select_output_stream += self.select_output_stream_handler
+        event_manager.sound_effect += self.sound_effect_handler
+        event_manager.quit += self.quit_handler
 
     def pre_read_input_handler(self, sender, event_args: EventArgs):
         self.output_line_count = 0
@@ -341,17 +340,17 @@ class BaseScreen:
 
 
 class ScreenV3(BaseScreen):
-    def __init__(self, screen_adapter: ScreenAdapter):
-        super().__init__(screen_adapter)
+    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
+        super().__init__(screen_adapter, event_manager)
         self.upper_window.y_pos = 1
         self.lower_window.y_pos = 1
         self.split_window(0)
         screen_adapter.set_scrollable_height(1)
         self.reset_cursor(self.lower_window)
 
-    def register_delegates(self):
-        super().register_delegates()
-        self.event_manager.refresh_status_line += self.refresh_status_line_handler
+    def register_delegates(self, event_manager: EventManager):
+        super().register_delegates(event_manager)
+        event_manager.refresh_status_line += self.refresh_status_line_handler
 
     def set_active_window(self, window: Window):
         super().set_active_window(window)
@@ -384,15 +383,15 @@ class ScreenV3(BaseScreen):
 
 
 class ScreenV4(BaseScreen):
-    def __init__(self, screen_adapter: ScreenAdapter):
-        super().__init__(screen_adapter)
+    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
+        super().__init__(screen_adapter, event_manager)
         self.reset_cursor(self.lower_window)
 
-    def register_delegates(self):
-        super().register_delegates()
-        self.event_manager.set_buffer_mode += self.set_buffer_mode_handler
-        self.event_manager.set_cursor += self.set_cursor_handler
-        self.event_manager.set_text_style += self.set_text_style_handler
+    def register_delegates(self, event_manager: EventManager):
+        super().register_delegates(event_manager)
+        event_manager.set_buffer_mode += self.set_buffer_mode_handler
+        event_manager.set_cursor += self.set_cursor_handler
+        event_manager.set_text_style += self.set_text_style_handler
 
     def set_cursor_handler(self, sender, e: EventArgs):
         y, x = e.y - 1, e.x - 1
@@ -407,7 +406,7 @@ class ScreenV4(BaseScreen):
         self.upper_window.sync_cursor(y, x)
 
     def set_buffer_mode_handler(self, sender, e: EventArgs):
-        if e.mode == 0:
+        if e.mode in (0, False):
             self.flush_buffer(self.lower_window)
 
     def set_text_style_handler(self, sender, e: EventArgs):
@@ -420,13 +419,13 @@ class ScreenV4(BaseScreen):
 
 
 class ScreenV5(ScreenV4):
-    def __init__(self, screen_adapter: ScreenAdapter):
-        super().__init__(screen_adapter)
+    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
+        super().__init__(screen_adapter, event_manager)
 
-    def register_delegates(self):
-        super().register_delegates()
-        self.event_manager.print_table += self.print_table_handler
-        self.event_manager.set_color += self.set_color_handler
+    def register_delegates(self, event_manager: EventManager):
+        super().register_delegates(event_manager)
+        event_manager.print_table += self.print_table_handler
+        event_manager.set_color += self.set_color_handler
 
     def print_table_handler(self, sender, e: EventArgs):
         self.print_table(e.table)

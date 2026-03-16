@@ -4,7 +4,6 @@ from typing import Callable, Dict, Any
 from functools import wraps
 from abstract_interpreter import AbstractZMachineInterpreter
 from enums import RoutineType
-from event import EventArgs
 from error import *
 
 
@@ -571,41 +570,42 @@ def op_pull(zm, *operands):
 
 
 def op_split_window(zm, *operands):
-    zm.event_manager.split_window.invoke(zm, EventArgs(lines=operands[0]))
+    zm.do_split_window(operands[0])
 
 
 def op_set_window(zm, *operands):
-    zm.event_manager.set_window.invoke(zm, EventArgs(window_id=operands[0]))
+    zm.do_set_window(operands[0])
 
 
 @signed_operands
 def op_erase_window(zm, *operands):
-    zm.event_manager.erase_window.invoke(zm, EventArgs(window_id=operands[0]))
+    zm.do_erase_window(operands[0])
 
 
 def op_set_cursor(zm, *operands):
     y, x = operands
-    zm.event_manager.set_cursor.invoke(zm, EventArgs(y=y, x=x))
+    zm.do_set_cursor(y, x)
 
 
 def op_set_text_style(zm, *operands):
-    zm.event_manager.set_text_style.invoke(zm, EventArgs(style=operands[0]))
+    zm.do_set_text_style(operands[0])
 
 
 def op_buffer_mode(zm, *operands):
-    zm.event_manager.set_buffer_mode.invoke(zm, EventArgs(mode=operands[0]))
+    mode: bool = operands[0] != 0
+    zm.do_set_buffer_mode(mode)
 
 
 def op_output_stream(zm, *operands):
     stream_id = sign_uint16(operands[0])
-    event_args = EventArgs(stream_id=stream_id)
-    if stream_id == 3:
-        event_args.table_addr = operands[1]
-    zm.event_manager.select_output_stream.invoke(zm, event_args)
+    table_addr = 0
+    if stream_id == 3 and len(operands) > 1:
+        table_addr = operands[1]
+    zm.do_select_output_stream(stream_id, table_addr)
 
 
 def op_sound_effect(zm, *operands):
-    zm.event_manager.sound_effect.invoke(zm, EventArgs(type=operands[0]))
+    zm.do_sound_effect(operands[0])
 
 
 def op_read_char(zm, *operands):
@@ -636,8 +636,7 @@ def op_call_vn(zm, *operands):
 
 
 def op_set_color(zm, *operands):
-    event_args = EventArgs(foreground_color=operands[0], background_color=operands[1])
-    zm.event_manager.set_color.invoke(zm, event_args)
+    zm.do_set_color(operands[0], operands[1])
 
 
 def op_call_vn2(zm, *operands):

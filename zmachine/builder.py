@@ -11,23 +11,23 @@ from constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
 class ZMachineBuilder:
     def __init__(self, game_file: str):
         config = ZMachineConfig.from_game_file(game_file)
-        EventManager.initialize_events()
+        event_manager = EventManager()
         memory_map = MemoryMap(config)
-        screen = self._initialize_screen(config)
+        screen = self._initialize_screen(config, event_manager)
         self._initialize_header(memory_map, screen, config.version)
-        self.output_stream_manager = OutputStreamManager(screen, memory_map)
-        self.interpreter = ZMachineInterpreter(memory_map, config)
+        self.output_stream_manager = OutputStreamManager(screen, memory_map, event_manager)
+        self.interpreter = ZMachineInterpreter(memory_map, config, event_manager)
 
     @staticmethod
-    def _initialize_screen(config: ZMachineConfig) -> BaseScreen:
+    def _initialize_screen(config: ZMachineConfig, event_manager: EventManager) -> BaseScreen:
         screen_adapter = CursesAdapter(config)
         version = config.version
         if version == 3:
-            return ScreenV3(screen_adapter)
+            return ScreenV3(screen_adapter, event_manager)
         if version == 4:
-            return ScreenV4(screen_adapter)
+            return ScreenV4(screen_adapter, event_manager)
         if version == 5:
-            return ScreenV5(screen_adapter)
+            return ScreenV5(screen_adapter, event_manager)
         raise Exception("Unrecognized configuration")
     
     def _initialize_header(self,
