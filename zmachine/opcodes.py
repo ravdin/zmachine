@@ -636,7 +636,7 @@ def op_call_vn(zm, *operands):
 
 
 def op_set_color(zm, *operands):
-    zm.do_set_color(operands[0], operands[1])
+    zm.do_set_color(foreground_color=operands[0], background_color=operands[1])
 
 
 def op_call_vn2(zm, *operands):

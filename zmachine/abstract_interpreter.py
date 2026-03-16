@@ -183,5 +183,5 @@ class AbstractZMachineInterpreter(ABC):
         pass
 
     @abstractmethod
-    def do_set_color(self, foreground: int, background: int):
+    def do_set_color(self, foreground_color: int, background_color: int):
         pass

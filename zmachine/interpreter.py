@@ -517,8 +517,9 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def do_sound_effect(self, type):
         self.event_manager.sound_effect.invoke(self, EventArgs(type=type))
 
-    def do_set_color(self, foreground: int, background):
-        return self.event_manager.set_color.invoke(self, EventArgs(foreground=foreground, background=background))
+    def do_set_color(self, foreground_color: int, background_color: int):
+        e = EventArgs(foreground_color=foreground_color, background_color=background_color)
+        return self.event_manager.set_color.invoke(self, e)
 
     def write_to_output_streams(self, text, newline=False):
         event_args = EventArgs(text=text, newline=newline)
