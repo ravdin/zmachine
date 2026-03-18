@@ -30,16 +30,12 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         self.undo_stack = UndoStack()
         self.quit = False
         self.debug = debug
-        self._event_manager = EventManager()
+        event_manager.toggle_debug += self.toggle_debug_handler
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
             self.event_manager.pre_read_input += self.pre_read_input_handler
         if debug:
-            debug_file = 'debug.txt'
-            filepath = os.path.dirname(self.config.game_file)
-            self.debug_file = os.path.join(filepath, debug_file)
-            with open(self.debug_file, 'w') as s:
-                s.write('')
+            self.open_debug_file()
 
     @property
     def version(self) -> int:
@@ -73,6 +69,19 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
 
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
+
+    def toggle_debug_handler(self, sender, e: EventArgs):
+        self.debug = not self.debug
+        e.debug_mode = self.debug
+        if self.debug:
+            self.open_debug_file()
+
+    def open_debug_file(self):
+        debug_file = 'debug.txt'
+        filepath = os.path.dirname(self.config.game_file)
+        self.debug_file = os.path.join(filepath, debug_file)
+        with open(self.debug_file, 'w') as s:
+            s.write('')
 
     def do_show_status(self):
         # In later versions, treat as a nop.
@@ -435,7 +444,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         if terminating_char == 13:
             command = bytearray(text_buffer[:input_len - 1]).decode()
             self.parse_command(command, parse_buffer_addr)
-            self.event_manager.post_read_input.invoke(self, EventArgs(command=command))
+        self.event_manager.post_read_input.invoke(self, EventArgs(command=command, terminating_char=terminating_char))
 
     def do_read_char(self, time: int = 0, routine: int = 0):
         self.event_manager.pre_read_input.invoke(self, EventArgs())
@@ -448,7 +457,9 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             echo=False
         )
         self.event_manager.read_input.invoke(self, event_args)
-        self.do_store(text_buffer[0])
+        ch = text_buffer[0]
+        self.event_manager.post_read_input.invoke(self, EventArgs(terminating_char=ch))
+        self.do_store(ch)
 
     def do_tokenize(self, text_addr: int, parse_buffer: int, dictionary_addr: int = 0, flag: int = 0):
         text_length = self.read_byte(text_addr + 1)

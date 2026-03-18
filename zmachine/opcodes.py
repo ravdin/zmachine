@@ -7,14 +7,14 @@ from enums import RoutineType
 from error import *
 
 
-def get_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+def get_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_all_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-def get_extended_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, int, ...], Any]]:
+def get_extended_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_extended_opcodes())
@@ -37,7 +37,7 @@ def sign_uint16(num):
 
 class Opcode:
     def __init__(self,
-                 op: Callable[[AbstractZMachineInterpreter, int, ...], Any],
+                 op: Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any],
                  opcode: int,
                  min_version: int = 1,
                  max_version: int = 6):

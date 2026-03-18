@@ -14,6 +14,16 @@ class StatusType(IntEnum):
     SCORE = 0
     TIME = 1
 
+class InputStreamType(IntEnum):
+    KEYBOARD = 0
+    PLAYBACK = 1
+
+class OutputStreamType(IntEnum):
+    SCREEN = 1
+    TRANSCRIPT = 2
+    MEMORY = 3
+    RECORD = 4
+
 class TextStyle(IntEnum):
     ROMAN = 0
     REVERSE = 1
@@ -37,6 +47,13 @@ class Cursor(IntEnum):
     LEFT = 131
     RIGHT = 132
 
+class Hotkey(IntEnum):
+    DEBUG = 2000
+    HELP = 2001
+    PLAYBACK = 2002
+    RECORD = 2003
+    SEED = 2004
+
 class TerminalMapping(NamedTuple):
     escape_sequence: tuple[int, ...]
     zscii_char: int
@@ -58,6 +75,11 @@ class TerminalEscape(Enum):
     F10 = TerminalMapping((91, 50, 49, 126), 142)
     F11 = TerminalMapping((91, 50, 51, 126), 143)
     F12 = TerminalMapping((91, 50, 52, 126), 144)
+    DEBUG = TerminalMapping((ord('d'),), Hotkey.DEBUG)
+    HELP = TerminalMapping((ord('h'),), Hotkey.HELP)
+    PLAYBACK = TerminalMapping((ord('p'),), Hotkey.PLAYBACK)
+    RECORD = TerminalMapping((ord('r'),), Hotkey.RECORD)
+    SEED = TerminalMapping((ord('s'),), Hotkey.SEED)
 
     @property
     def sequence(self) -> tuple[int, ...]:
@@ -66,6 +88,10 @@ class TerminalEscape(Enum):
     @property
     def zscii_char(self) -> int:
         return self.value.zscii_char
+    
+    @classmethod
+    def values(cls) -> list[int]:
+        return [e.zscii_char for e in cls]
     
     @classmethod
     def lookup_sequence(cls, escape_sequence: tuple[int, ...]) -> Optional['TerminalEscape']:
