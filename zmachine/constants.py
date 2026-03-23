@@ -19,3 +19,5 @@ DEFAULT_BACKGROUND_COLOR: Final[Color] = Color.BLACK
 
 IFF_HEADER: Final[bytearray] = bytearray('FORM'.encode('UTF-8'))
 IFZS_ID: Final[bytearray] = bytearray('IFZS'.encode('UTF-8'))
+
+ESCAPE_CHAR: Final[int] = 27

@@ -49,6 +49,10 @@ class EventManager():
         self.write_to_streams = Event()
         # Write unbuffered output to the active screen window.
         self.print_to_active_window = Event()
+        # Activate a hotkey event handler.
+        self.activate_hotkey = Event()
+        # Activate an input stream for reading.
+        self.select_input_stream = Event()
         # Activate or deactivate an output stream.
         self.select_output_stream = Event()
         # Refresh the status line (version 3).
@@ -81,5 +85,7 @@ class EventManager():
         self.sound_effect = Event()
         # Change the screen colors.
         self.set_color = Event()
+        # Toggle debug mode.
+        self.toggle_debug = Event()
         # Raised when quitting the game.
         self.quit = Event()

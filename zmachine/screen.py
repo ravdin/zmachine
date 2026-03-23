@@ -7,21 +7,21 @@ from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 class Window:
     def __init__(self, height: int, width: int):
-        self.height = height
-        self.width = width
-        self.y_pos = 0
-        self.x_pos = 0
-        self.y_cursor = 0
-        self.x_cursor = 0
-        self.style_attributes = 0
-        self.background_color = DEFAULT_BACKGROUND_COLOR
-        self.foreground_color = DEFAULT_FOREGROUND_COLOR
+        self.height: int = height
+        self.width: int = width
+        self.y_pos: int = 0
+        self.x_pos: int = 0
+        self.y_cursor: int = 0
+        self.x_cursor: int = 0
+        self.style_attributes: int = 0
+        self.background_color: int = DEFAULT_BACKGROUND_COLOR
+        self.foreground_color: int = DEFAULT_FOREGROUND_COLOR
 
     def sync_cursor(self, y_pos: int, x_pos: int):
         self.y_cursor, self.x_cursor = y_pos, x_pos
 
 
-class ScreenAdapter(ABC):
+class TerminalAdapter(ABC):
     @property
     @abstractmethod
     def height(self) -> int:
@@ -45,7 +45,11 @@ class ScreenAdapter(ABC):
         pass
 
     @abstractmethod
-    def get_input_char(self) -> int:
+    def get_input_char(self, echo: bool = True) -> int:
+        pass
+
+    @abstractmethod
+    def get_escape_sequence(self) -> list[int]:
         pass
 
     @abstractmethod
@@ -53,14 +57,7 @@ class ScreenAdapter(ABC):
         pass
 
     @abstractmethod
-    def read_keyboard_input(
-            self,
-            text_buffer: list[int],
-            timeout_ms: int,
-            interrupt_routine_caller: Callable[[int], int],
-            interrupt_routine_addr: int,
-            echo: bool = True
-    ):
+    def set_timeout(self, timeout_ms: int):
         pass
 
     @abstractmethod
@@ -69,6 +66,14 @@ class ScreenAdapter(ABC):
 
     @abstractmethod
     def move_cursor(self, y_pos: int, x_pos: int):
+        pass
+
+    @abstractmethod
+    def get_char_at(self, y_pos: int, x_pos: int) -> int:
+        pass
+
+    @abstractmethod
+    def paint_char_at(self, y_pos: int, x_pos: int, char: int):
         pass
 
     @abstractmethod
@@ -102,22 +107,23 @@ class ScreenAdapter(ABC):
 
 class BaseScreen:
     _TEXT_BUFFER_LENGTH = 1024
+    _pause_enabled: bool = True
 
-    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
-        self.screen_adapter = screen_adapter
-        self.height = screen_adapter.height
-        self.width = screen_adapter.width
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        self.terminal_adapter = terminal_adapter
+        self.height = terminal_adapter.height
+        self.width = terminal_adapter.width
         self.lower_window = Window(self.height, self.width)
         self.upper_window = Window(0, 0)
         self.active_window = self.lower_window
         self.output_line_count = 0
         self.text_buffer = ['\0'] * self._TEXT_BUFFER_LENGTH
         self.text_buffer_ptr = 0
+        self._pause_enabled = True
         self.register_delegates(event_manager)
 
     def register_delegates(self, event_manager: EventManager):
         event_manager.pre_read_input += self.pre_read_input_handler
-        event_manager.read_input += self.read_input_handler
         event_manager.set_window += self.set_window_handler
         event_manager.split_window += self.split_window_handler
         event_manager.erase_window += self.erase_window_handler
@@ -128,10 +134,24 @@ class BaseScreen:
         event_manager.sound_effect += self.sound_effect_handler
         event_manager.quit += self.quit_handler
 
-    def pre_read_input_handler(self, sender, event_args: EventArgs):
+    @property
+    def pause_enabled(self) -> bool:
+        return self._pause_enabled
+    
+    @pause_enabled.setter
+    def pause_enabled(self, value: bool):
+        self._pause_enabled = value
+
+    def reset_output_line_count(self):
         self.output_line_count = 0
+
+    def get_input_string(self, prompt: str, lowercase: bool) -> str:
+        return self.terminal_adapter.get_input_string(prompt, lowercase)
+
+    def pre_read_input_handler(self, sender, event_args: EventArgs):
+        self.reset_output_line_count()
         self.flush_buffer(self.active_window)
-        self.screen_adapter.refresh()
+        self.terminal_adapter.refresh()
 
     def read_input_handler(self, sender, event_args: EventArgs):
         timeout_ms: int = event_args.timeout_ms
@@ -139,7 +159,7 @@ class BaseScreen:
         interrupt_routine_caller: Callable[[int], int] = event_args.interrupt_routine_caller
         interrupt_routine_addr: int = event_args.interrupt_routine_addr
         echo = event_args.get('echo', True)
-        self.screen_adapter.read_keyboard_input(
+        self.terminal_adapter.read_keyboard_input(
             text_buffer,
             timeout_ms,
             interrupt_routine_caller,
@@ -166,11 +186,11 @@ class BaseScreen:
         window_id = e.window_id
         self.flush_buffer(self.lower_window)
         if window_id == -2:
-            self.screen_adapter.erase_screen()
+            self.terminal_adapter.erase_screen()
             self.output_line_count = 0
             self.reset_cursor(self.lower_window)
         elif window_id == -1:
-            self.screen_adapter.erase_screen()
+            self.terminal_adapter.erase_screen()
             self.output_line_count = 0
             self.split_window(0)
             self.reset_cursor(self.lower_window)
@@ -178,14 +198,14 @@ class BaseScreen:
             self.erase(self.lower_window)
         elif window_id == WindowPosition.UPPER:
             self.erase(self.upper_window)
-        self.screen_adapter.move_cursor(self.active_window.y_cursor, self.active_window.x_cursor)
-        self.screen_adapter.refresh()
+        self.terminal_adapter.move_cursor(self.active_window.y_cursor, self.active_window.x_cursor)
+        self.terminal_adapter.refresh()
 
     def print_to_active_window_handler(self, sender, e: EventArgs):
         self.flush_buffer(self.active_window)
         text, newline = e.text, e.get('newline', False)
         self.print_to_active_window(text, newline)
-        self.screen_adapter.refresh()
+        self.terminal_adapter.refresh()
 
     def interpreter_prompt_handler(self, sender, e: EventArgs):
         self.write_to_screen(e.text + "\n")
@@ -193,37 +213,37 @@ class BaseScreen:
     def interpreter_input_handler(self, sender, e: EventArgs):
         lowercase = e.get('lowercase', True)
         prompt = e.get('text', '')
-        e.response = self.screen_adapter.get_input_string(prompt, lowercase)
+        e.response = self.get_input_string(prompt, lowercase)
 
     def select_output_stream_handler(self, sender, e: EventArgs):
         self.flush_buffer(self.lower_window)
 
     def sound_effect_handler(self, sender, e: EventArgs):
-        self.screen_adapter.sound_effect(e.type)
+        self.terminal_adapter.sound_effect(e.type)
 
     def quit_handler(self, sender, e: EventArgs):
         self.set_active_window(self.lower_window)
         self.flush_buffer(self.active_window)
         self.write_to_screen("\n[Press any key to exit.]")
-        self.screen_adapter.refresh()
-        self.screen_adapter.get_input_char()
-        self.screen_adapter.shutdown()
+        self.terminal_adapter.refresh()
+        self.terminal_adapter.get_input_char(False)
+        self.terminal_adapter.shutdown()
 
     def write_to_screen(self, text):
-        self.screen_adapter.write_to_screen(text)
+        self.terminal_adapter.write_to_screen(text)
 
     def print_to_active_window(self, text: str, newline: bool):
         self.apply_text_style_attributes(self.active_window)
         self.write_to_screen(text)
         if newline:
             self.write_to_screen("\n")
-        self.screen_adapter.refresh()
+        self.terminal_adapter.refresh()
 
     def move_cursor(self, y_pos, x_pos):
-        self.screen_adapter.move_cursor(y_pos, x_pos)
+        self.terminal_adapter.move_cursor(y_pos, x_pos)
 
     def apply_text_style_attributes(self, window: Window):
-        self.screen_adapter.apply_style_attributes(window.style_attributes)
+        self.terminal_adapter.apply_style_attributes(window.style_attributes)
 
     def reset_cursor(self, window: Window):
         if window == self.upper_window:
@@ -232,14 +252,14 @@ class BaseScreen:
             window.y_cursor, window.x_cursor = self.height - 1, 0
 
     def set_active_window(self, window: Window):
-        self.active_window.sync_cursor(*self.screen_adapter.get_coordinates())
+        self.active_window.sync_cursor(*self.terminal_adapter.get_coordinates())
         self.active_window = window
         self.move_cursor(window.y_cursor, window.x_cursor)
         self.apply_text_style_attributes(window)
 
     def split_window(self, lines):
         self.flush_buffer(self.lower_window)
-        self.active_window.sync_cursor(*self.screen_adapter.get_coordinates())
+        self.active_window.sync_cursor(*self.terminal_adapter.get_coordinates())
         lower_window_y = lines + self.upper_window.y_pos
         self.upper_window.height = lines
         self.lower_window.height = self.height - lower_window_y
@@ -252,11 +272,11 @@ class BaseScreen:
             self.reset_cursor(self.lower_window)
             if self.active_window == self.lower_window:
                 self.move_cursor(self.lower_window.y_cursor, self.lower_window.x_cursor)
-        self.screen_adapter.set_scrollable_height(lower_window_y)
-        self.screen_adapter.refresh()
+        self.terminal_adapter.set_scrollable_height(lower_window_y)
+        self.terminal_adapter.refresh()
 
     def erase(self, window: Window):
-        self.screen_adapter.erase_window(window)
+        self.terminal_adapter.erase_window(window)
         self.reset_cursor(window)
 
     def write_to_buffer(self, text: str, newline: bool):
@@ -279,24 +299,24 @@ class BaseScreen:
         active_window = self.active_window
         self.set_active_window(window)
         output_lines = self.wrap_lines(text)
-        self.screen_adapter.apply_style_attributes(self.active_window.style_attributes)
+        self.terminal_adapter.apply_style_attributes(self.active_window.style_attributes)
         for line in output_lines:
             self.write_to_screen(line)
-            if self.screen_adapter.get_coordinates()[1] == 0:
+            if self.terminal_adapter.get_coordinates()[1] == 0:
                 self.output_line_count += 1
-            if self.output_line_count >= window.height - 1:
+            if self.output_line_count >= window.height - 1 and self.pause_enabled:
                 self.write_to_screen('[MORE]')
-                self.screen_adapter.refresh()
-                self.screen_adapter.get_input_char()
+                self.terminal_adapter.refresh()
+                self.terminal_adapter.get_input_char(False)
                 self.move_cursor(self.height - 1, 0)
-                self.screen_adapter.clear_to_eol()
+                self.terminal_adapter.clear_to_eol()
                 self.output_line_count = 0
         self.set_active_window(active_window)
 
     def wrap_lines(self, text):
         result = []
         text_pos = 0
-        y, x = self.screen_adapter.get_coordinates()
+        y, x = self.terminal_adapter.get_coordinates()
         while text_pos < len(text):
             line = text[text_pos:]
             line_break = text.find("\n", text_pos)
@@ -340,12 +360,12 @@ class BaseScreen:
 
 
 class ScreenV3(BaseScreen):
-    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
-        super().__init__(screen_adapter, event_manager)
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        super().__init__(terminal_adapter, event_manager)
         self.upper_window.y_pos = 1
         self.lower_window.y_pos = 1
         self.split_window(0)
-        screen_adapter.set_scrollable_height(1)
+        terminal_adapter.set_scrollable_height(1)
         self.reset_cursor(self.lower_window)
 
     def register_delegates(self, event_manager: EventManager):
@@ -368,9 +388,9 @@ class ScreenV3(BaseScreen):
             window.y_cursor, window.x_cursor = self.height - 1, 0
 
     def refresh_status_line_handler(self, sender, event_args: EventArgs):
-        y, x = self.screen_adapter.get_coordinates()
+        y, x = self.terminal_adapter.get_coordinates()
         self.move_cursor(0, 0)
-        self.screen_adapter.apply_style_attributes(TextStyle.REVERSE)
+        self.terminal_adapter.apply_style_attributes(TextStyle.REVERSE)
         self.write_to_screen(' ' * self.width)
         location = event_args.location
         right_status = event_args.right_status
@@ -378,13 +398,13 @@ class ScreenV3(BaseScreen):
         self.write_to_screen(location)
         self.move_cursor(0, self.width - len(right_status) - 3)
         self.write_to_screen(right_status)
-        self.screen_adapter.apply_style_attributes(TextStyle.ROMAN)
+        self.terminal_adapter.apply_style_attributes(TextStyle.ROMAN)
         self.move_cursor(y, x)
 
 
 class ScreenV4(BaseScreen):
-    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
-        super().__init__(screen_adapter, event_manager)
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        super().__init__(terminal_adapter, event_manager)
         self.reset_cursor(self.lower_window)
 
     def register_delegates(self, event_manager: EventManager):
@@ -419,8 +439,8 @@ class ScreenV4(BaseScreen):
 
 
 class ScreenV5(ScreenV4):
-    def __init__(self, screen_adapter: ScreenAdapter, event_manager: EventManager):
-        super().__init__(screen_adapter, event_manager)
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        super().__init__(terminal_adapter, event_manager)
 
     def register_delegates(self, event_manager: EventManager):
         super().register_delegates(event_manager)
@@ -438,11 +458,11 @@ class ScreenV5(ScreenV4):
         self.set_color(window, window.background_color, window.foreground_color)
 
     def set_color(self, window: Window, background_color: int, foreground_color: int):
-        self.screen_adapter.set_color(window, background_color, foreground_color)
+        self.terminal_adapter.set_color(window, background_color, foreground_color)
 
     def print_table(self, table):
         self.flush_buffer(self.active_window)
-        y, x = self.screen_adapter.get_coordinates()
+        y, x = self.terminal_adapter.get_coordinates()
         for row in table:
             if 0 in row:
                 row = row[:row.index(0)]

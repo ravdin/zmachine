@@ -1,6 +1,6 @@
 from zmachine.screen import ScreenV4
 from zmachine.__curses import CursesAdapter
-from zmachine.stream import ScreenStream
+from zmachine.output import ScreenStream
 from zmachine.event import EventArgs
 
 

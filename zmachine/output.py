@@ -1,7 +1,7 @@
 from memory import MemoryMap
 from screen import BaseScreen
 from event import EventManager, EventArgs
-from enums import WindowPosition
+from enums import WindowPosition, OutputStreamType
 from error import StreamException
 import os
 
@@ -11,10 +11,12 @@ class OutputStreamManager:
         self.screen_stream = ScreenStream(screen)
         self.transcript_stream = TranscriptStream(memory_map, event_manager)
         self.memory_stream = MemoryStream(memory_map)
+        self.record_stream = RecordStream()
         self.streams = {
-            1: self.screen_stream,
-            2: self.transcript_stream,
-            3: self.memory_stream
+            OutputStreamType.SCREEN: self.screen_stream,
+            OutputStreamType.TRANSCRIPT: self.transcript_stream,
+            OutputStreamType.MEMORY: self.memory_stream,
+            OutputStreamType.RECORD: self.record_stream
         }
         self.register_delegates(event_manager)
 
@@ -173,7 +175,10 @@ class TranscriptStream(OutputStream):
         self.flush_buffer()
 
     def post_read_input_handler(self, sender, e: EventArgs):
-        self.write(e.command, True)
+        command = e.get('command', None)
+        terminating_char = e.get('terminating_char', 13)
+        if terminating_char == 13:
+            self.write(command, True)
 
     def quit_handler(self, sender, e: EventArgs):
         self.flush_buffer()
@@ -220,3 +225,27 @@ class MemoryStream(OutputStream):
         self.buffer_ptr = buffer_start
         if self.stack_ptr == 0:
             self.is_active = False
+
+class RecordStream(OutputStream):
+    def __init__(self):
+        super().__init__()
+        self.record_full_path = None
+
+    def register_delegates(self, event_manager: EventManager):
+        event_manager.post_read_input += self.post_read_input_handler
+
+    def open(self, **kwargs):
+        super().open(**kwargs)
+        self.record_full_path = kwargs['record_full_path']
+
+    def post_read_input_handler(self, sender, e: EventArgs):
+        if not self.is_active:
+            return
+        command = e.get('command', None)
+        terminating_char = e.get('terminating_char', 13)
+        with open(self.record_full_path, 'a') as s:
+            if command is not None:
+                s.write(command)
+            if command is None or terminating_char != 13:
+                s.write(f'[{terminating_char}]')
+            s.write("\n")
