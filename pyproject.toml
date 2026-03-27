@@ -1,0 +1,27 @@
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+
+# Start with these disabled, can enable incrementally
+disallow_untyped_defs = false
+disallow_any_generics = false
+disallow_subclassing_any = false
+
+# These are helpful
+check_untyped_defs = true
+warn_unreachable = true
+
+# Tell mypy that zmachine is a namespace package with implicit imports
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = "."
+
+# Ignore missing imports for libraries without stubs
+[[tool.mypy.overrides]]
+module = "curses"
+ignore_missing_imports = true

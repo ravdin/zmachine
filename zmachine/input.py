@@ -2,11 +2,11 @@ import re
 import os
 from abc import ABC, abstractmethod
 from typing import Callable
-from enums import TerminalEscape, InputStreamType, Hotkey, WindowPosition
-from config import ZMachineConfig
-from constants import ESCAPE_CHAR
-from screen import BaseScreen, TerminalAdapter
-from event import EventManager, EventArgs
+from .enums import TerminalEscape, InputStreamType, Hotkey, WindowPosition
+from .config import ZMachineConfig
+from .constants import ESCAPE_CHAR
+from .screen import BaseScreen, TerminalAdapter
+from .event import EventManager, EventArgs
 
 class KeyboardInputParser:
     def __init__(self, terminal_adapter: TerminalAdapter):
@@ -40,7 +40,7 @@ class InputStreamManager:
         self.screen = screen
         self.keyboard_input_stream = KeyboardInputStream(screen, event_manager, config)
         self.playback_input_stream = PlaybackInputStream(screen, event_manager)
-        self.active_stream = self.keyboard_input_stream
+        self.active_stream: InputStream = self.keyboard_input_stream
         self.register_delegates(event_manager)
 
     def register_delegates(self, event_manager: EventManager):
@@ -216,11 +216,16 @@ class PlaybackInputStream(InputStream):
         else:
             # Parse format: "command text" or "command text[terminating_char]"
             matches = re.match(r'^(.+?)(?:\[(\d+)\])?$', command)
+            if matches is None:
+                self.screen.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
+                text_buffer[buffer_pos] = 13
+                self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
+                return
             groups = matches.groups()
             command_text = groups[0]
             if echo:
                 self.screen.write_to_screen(command_text.upper() + '\n')
-            if groups[1] is not None:
+            if len(groups) > 1 and groups[1] is not None:
                 terminating_char = int(groups[1])
                 if terminating_char == 0:
                     if interrupt_routine_caller(interrupt_routine_addr) != 0:

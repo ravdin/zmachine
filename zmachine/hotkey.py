@@ -1,10 +1,10 @@
 import os
 import random
 import time
-from enums import InputStreamType, OutputStreamType, Hotkey
-from event import EventManager, EventArgs
-from screen import BaseScreen
-from config import ZMachineConfig
+from .enums import InputStreamType, OutputStreamType, Hotkey
+from .event import EventManager, EventArgs
+from .screen import BaseScreen
+from .config import ZMachineConfig
 
 class HotkeyManager:
     def __init__(self, config: ZMachineConfig, screen: BaseScreen, event_manager: EventManager):
@@ -78,7 +78,7 @@ class HotkeyManager:
     def toggle_debug_mode(self) -> bool:
         event_args = EventArgs()
         self.event_manager.toggle_debug.invoke(self, event_args)
-        return event_args.debug_mode
+        return bool(event_args.debug_mode)
 
     def set_random_seed(self):
         seed = self.screen.get_input_string("Enter random seed: ", lowercase=False)
@@ -122,17 +122,17 @@ class HotkeyManager:
         """Prompt the user for a playback file and switch to the playback input stream if successful."""
         game_file = self.config.game_file
         commands = []
-        seed: int = None
+        seed: int | None = None
         in_metadata_section = True
         filepath = os.path.dirname(game_file)
         filename = os.path.basename(game_file)
         base_filename = os.path.splitext(filename)[0]
-        default_playback_file = f'{base_filename}.rec'
+        default_playback_filename = f'{base_filename}.rec'
         self.screen.write_to_screen("Enter a file name for playback.\n")
-        playback_file = self.screen.get_input_string(f"Default is {default_playback_file}: ", lowercase=False)
-        if playback_file == '':
-            playback_file = default_playback_file
-        playback_file_path = os.path.join(filepath, playback_file)
+        playback_filename = self.screen.get_input_string(f"Default is {default_playback_filename}: ", lowercase=False)
+        if playback_filename == '':
+            playback_filename = default_playback_filename
+        playback_file_path = os.path.join(filepath, playback_filename)
         if not os.path.exists(playback_file_path):
             self.screen.write_to_screen("Unable to open playback file.\n")
             return False

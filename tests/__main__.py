@@ -1,4 +1,4 @@
-from screen_test import ScreenTest
+from .screen_test import ScreenTest
 
 
 def main():

@@ -1,5 +1,5 @@
 import sys
-from builder import ZMachineBuilder
+from .builder import ZMachineBuilder
 
 
 def main():

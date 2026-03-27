@@ -14,7 +14,7 @@ class UndoFrame:
         return result
 
     @classmethod
-    def deserialize(cls, data: bytearray):
+    def deserialize(cls, data: bytearray) -> "UndoFrame":
         dynamic_memory_len = int.from_bytes(data[:4], "big")
         data_ptr = dynamic_memory_len + 4
         dynamic_memory = data[4:data_ptr]

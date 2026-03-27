@@ -1,6 +1,6 @@
-from memory import MemoryMap
+from .memory import MemoryMap
 from typing import List
-from error import *
+from .error import *
 
 
 class TextUtils:
@@ -109,7 +109,7 @@ class TextUtils:
             positions += [pos]
         return tokens, positions
 
-    def zscii_decode(self, zchars):
+    def zscii_decode(self, zchars: list[int]) -> str:
         result = []
         current_alphabet = self.A0
         zptr = 0
@@ -158,13 +158,13 @@ class TextUtils:
             addr += 2
         return addr
 
-    def abbreviation_lookup(self, index):
-        result = []
+    def abbreviation_lookup(self, index: int) -> list[int]:
+        result: list[int] = []
         addr = self.memory_map.word_addr(self.config.abbreviation_table_addr + index * 2)
         self.read_zchars(addr, result)
         return result
 
-    def zscii_encode(self, text, byte_len=4) -> list[int]:
+    def zscii_encode(self, text: str, byte_len: int = 4) -> list[int]:
         zlen = byte_len // 2 * 3
         zchars = []
         for c in text:

@@ -1,8 +1,9 @@
-from memory import MemoryMap
-from screen import BaseScreen
-from event import EventManager, EventArgs
-from enums import WindowPosition, OutputStreamType
-from error import StreamException
+from .config import ZMachineConfig
+from .memory import MemoryMap
+from .screen import BaseScreen
+from .event import EventManager, EventArgs
+from .enums import WindowPosition, OutputStreamType
+from .error import StreamException
 import os
 
 
@@ -93,13 +94,13 @@ class TranscriptStream(OutputStream):
 
     def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
         super().__init__()
-        self.config = memory_map.config
-        self.event_manager = event_manager
-        self.buffer = ['\0'] * self._BUFFER_LENGTH
-        self.buffer_ptr = 0
-        self.script_full_path = None
-        self.script_file_mode = 'w'
-        self.transcript_full_path = None
+        self.config: ZMachineConfig = memory_map.config
+        self.event_manager: EventManager = event_manager
+        self.buffer: list[str] = ['\0'] * self._BUFFER_LENGTH
+        self.buffer_ptr: int = 0
+        self.script_full_path: str | None = None
+        self.script_file_mode: str = 'w'
+        self.transcript_full_path: str | None = None
         self.memory_map = memory_map
 
     def open(self, **kwargs):
@@ -229,7 +230,7 @@ class MemoryStream(OutputStream):
 class RecordStream(OutputStream):
     def __init__(self):
         super().__init__()
-        self.record_full_path = None
+        self.record_full_path = ''
 
     def register_delegates(self, event_manager: EventManager):
         event_manager.post_read_input += self.post_read_input_handler

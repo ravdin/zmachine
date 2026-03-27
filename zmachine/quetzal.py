@@ -1,10 +1,10 @@
 import os
 from enum import Enum
 from typing import BinaryIO, Callable, Any
-from event import EventArgs, EventManager
-from memory import MemoryMap
-from constants import IFF_HEADER, IFZS_ID
-from stack import CallStack
+from .event import EventArgs, EventManager
+from .memory import MemoryMap
+from .constants import IFF_HEADER, IFZS_ID
+from .stack import CallStack
 
 class IffType(Enum):
     HEADER = 'IFhd'
@@ -72,7 +72,7 @@ class Quetzal:
         save_full_path = os.path.join(filepath, save_file)
         if not os.path.exists(save_full_path):
             return False
-        chunks = {}
+        chunks: dict[str, IffChunk] = {}
         with open(save_full_path, 'rb') as s:
             header = s.read(4)
             data_len = int.from_bytes(s.read(4), "big")

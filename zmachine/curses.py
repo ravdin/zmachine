@@ -1,9 +1,9 @@
 import curses
 import atexit
-from screen import TerminalAdapter, Window
-from enums import TextStyle, Color
-from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
-from config import ZMachineConfig
+from .screen import TerminalAdapter, Window
+from .enums import TextStyle, Color
+from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
+from .config import ZMachineConfig
 
 
 class CursesAdapter(TerminalAdapter):
@@ -28,7 +28,7 @@ class CursesAdapter(TerminalAdapter):
 
     def __init__(self, config: ZMachineConfig):
         super().__init__()
-        self.main_screen: curses.window = None
+        self.main_screen = curses.initscr()
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
         self.config = config
@@ -36,7 +36,6 @@ class CursesAdapter(TerminalAdapter):
         atexit.register(self.shutdown)
 
     def _initialize_curses(self):
-        self.main_screen = curses.initscr()
         curses.noecho()
         curses.cbreak()
         self.main_screen.scrollok(True)
@@ -141,8 +140,8 @@ class CursesAdapter(TerminalAdapter):
         if pair_number == 0:
             curses.init_pair(
                 self.color_pair_index,
-                self.COLORS[foreground_color],
-                self.COLORS[background_color]
+                self.COLORS[Color(foreground_color)],
+                self.COLORS[Color(background_color)]
             )
             pair_number = self.color_pair_index
             self.color_pairs[background_color][foreground_color] = pair_number
@@ -176,4 +175,3 @@ class CursesAdapter(TerminalAdapter):
             curses.endwin()
         except curses.error:
             pass # Ignore cleanup errors
-        self.main_screen = None

@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Callable
-from event import EventManager, EventArgs
-from enums import WindowPosition, TextStyle
-from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
+from .event import EventManager, EventArgs
+from .enums import WindowPosition, TextStyle
+from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 
 class Window:
@@ -152,24 +152,6 @@ class BaseScreen:
         self.reset_output_line_count()
         self.flush_buffer(self.active_window)
         self.terminal_adapter.refresh()
-
-    def read_input_handler(self, sender, event_args: EventArgs):
-        timeout_ms: int = event_args.timeout_ms
-        text_buffer: list[int] = event_args.text_buffer
-        interrupt_routine_caller: Callable[[int], int] = event_args.interrupt_routine_caller
-        interrupt_routine_addr: int = event_args.interrupt_routine_addr
-        echo = event_args.get('echo', True)
-        self.terminal_adapter.read_keyboard_input(
-            text_buffer,
-            timeout_ms,
-            interrupt_routine_caller,
-            interrupt_routine_addr,
-            echo
-        )
-        if echo:
-            buffer_len = text_buffer.index(0)
-            if buffer_len > 0 and text_buffer[buffer_len - 1] == 13:
-                self.output_line_count = 0
 
     def set_window_handler(self, sender, e: EventArgs):
         window_id = e.window_id

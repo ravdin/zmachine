@@ -1,18 +1,17 @@
 import os
-import opcodes
-from typing import Tuple
-from abstract_interpreter import AbstractZMachineInterpreter
-from config import ZMachineConfig
-from constants import INPUT_BUFFER_LENGTH
-from memory import MemoryMap
-from object_table import ObjectTable
-from event import EventArgs, EventManager
-from text import TextUtils
-from quetzal import Quetzal
-from undo import UndoStack
-from enums import WindowPosition, StatusType, RoutineType
-from stack import CallStack
-from error import *
+from . import opcodes
+from .abstract_interpreter import AbstractZMachineInterpreter
+from .config import ZMachineConfig
+from .constants import INPUT_BUFFER_LENGTH
+from .memory import MemoryMap
+from .object_table import ObjectTable
+from .event import EventArgs, EventManager
+from .text import TextUtils
+from .quetzal import Quetzal
+from .undo import UndoStack
+from .enums import WindowPosition, StatusType, RoutineType
+from .stack import CallStack, EvalStack
+from .error import *
 
 
 class ZMachineInterpreter(AbstractZMachineInterpreter):
@@ -268,16 +267,16 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return self.memory_map.read_word(ptr)
 
     @property
-    def eval_stack(self):
+    def eval_stack(self) -> 'EvalStack':
         return self.call_stack.eval_stack
 
     def stack_push(self, val):
         self.eval_stack.push(val)
 
-    def stack_pop(self):
+    def stack_pop(self) -> int:
         return self.eval_stack.pop()
 
-    def stack_peek(self):
+    def stack_peek(self) -> int:
         return self.eval_stack.peek()
 
     def get_global_var(self, index):
@@ -315,7 +314,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         else:
             raise VariableOutOfRangeException(varnum)
 
-    def do_routine(self, call_addr: int, args: Tuple[int], routine_type: int = RoutineType.STORE):
+    def do_routine(self, call_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
         store_varnum = 0
         if routine_type == RoutineType.STORE:
             store_varnum = self.read_from_pc()
@@ -358,7 +357,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         if call_addr == 0:
             return True
         frame_id = self.call_stack.catch()
-        self.do_routine(call_addr, tuple[int](), RoutineType.DIRECT_CALL)
+        self.do_routine(call_addr, (), RoutineType.DIRECT_CALL)
         while self.call_stack.catch() > frame_id:
             self.run_instruction()
         if self.call_stack.catch() != frame_id:
@@ -497,7 +496,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             text[i] = chr(self.read_byte(text_addr + start + i))
         # This is a version 5+ op, so encoded zscii strings will be 6 bytes.
         byte_len = 6
-        encoded = self.text_utils.zscii_encode(text, byte_len)
+        encoded = self.text_utils.zscii_encode(str.join('', text), byte_len)
         for i in range(byte_len):
             self.write_byte(coded_buffer + i, encoded[i])
 
@@ -540,7 +539,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         self.pc = self.print_from_addr(self.pc, newline)
 
     def print_from_addr(self, addr, newline=False):
-        zchars = []
+        zchars: list[int] = []
         addr = self.text_utils.read_zchars(addr, zchars)
         text = self.text_utils.zscii_decode(zchars)
         self.write_to_output_streams(text, newline)
