@@ -36,7 +36,7 @@ class ZMachineConfig:
     """ Length of the game file in bytes. """
     checksum: int = 0
     """ Checksum of the game file, used for copy protection. """
-    interrupt_zchars: tuple[int, ...] = field(default_factory=tuple[int, ...])
+    interrupt_zchars: tuple[int, ...] = field(default_factory=tuple)
     """ Terminating characters (version 5 and above)"""
 
     @classmethod
