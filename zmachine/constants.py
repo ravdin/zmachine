@@ -1,5 +1,5 @@
 from typing import Final
-from enums import Color
+from .enums import Color
 
 SUPPORTED_VERSIONS: Final[tuple[int, ...]] = (3, 4, 5)
 

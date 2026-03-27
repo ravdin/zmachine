@@ -1,5 +1,5 @@
-from memory import MemoryMap
-from error import *
+from .memory import MemoryMap
+from .error import *
 
 
 class ObjectTable:
@@ -16,22 +16,22 @@ class ObjectTable:
         self.SIBLING_OFFSET = 5 if self.version <= 3 else 8
         self.CHILD_OFFSET = 6 if self.version <= 3 else 10
 
-    def read_byte(self, addr):
+    def read_byte(self, addr: int) -> int:
         return self.memory_map.read_byte(addr)
 
-    def read_word(self, addr):
+    def read_word(self, addr: int) -> int:
         return self.memory_map.read_word(addr)
 
-    def byte_addr(self, addr):
+    def byte_addr(self, addr: int) -> int:
         return self.memory_map.byte_addr(addr)
 
-    def write_byte(self, addr, val):
+    def write_byte(self, addr: int, val: int):
         self.memory_map.write_byte(addr, val)
 
-    def write_word(self, addr, val):
+    def write_word(self, addr: int, val: int):
         self.memory_map.write_word(addr, val)
 
-    def get_obj_addr(self, obj_id):
+    def get_obj_addr(self, obj_id: int) -> int:
         if obj_id <= 0 or obj_id > self.MAX_OBJECTS:
             raise InvalidMemoryException(f"Object ID '{obj_id}' out of range")
         obj_addr = self.OBJECT_TABLE + \
@@ -45,7 +45,7 @@ class ObjectTable:
             obj_addr = 0
         return obj_addr
 
-    def get_attribute_flag(self, obj_id, attr_num) -> bool:
+    def get_attribute_flag(self, obj_id: int, attr_num: int) -> bool:
         if attr_num < 0 or attr_num >= self.ATTRIBUTE_FLAGS:
             raise InvalidArgumentException(f'Invalid attribute: {attr_num}')
         byte_offset = attr_num >> 3
@@ -68,7 +68,7 @@ class ObjectTable:
             attribute_byte &= (~attr_flag & 0xff)
         self.write_byte(obj_addr + byte_offset, attribute_byte)
 
-    def get_object_text_zchars(self, obj_id):
+    def get_object_text_zchars(self, obj_id: int) -> list[int]:
         obj_addr = self.get_obj_addr(obj_id)
         prop_header_addr = self.byte_addr(obj_addr + self.OBJECT_BYTES - 2)
         word_count = self.read_byte(prop_header_addr)

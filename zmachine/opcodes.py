@@ -2,9 +2,9 @@ import random
 import time
 from typing import Callable, Dict, Any
 from functools import wraps
-from abstract_interpreter import AbstractZMachineInterpreter
-from enums import RoutineType
-from error import *
+from .abstract_interpreter import AbstractZMachineInterpreter
+from .enums import RoutineType
+from .error import *
 
 
 def get_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any]]:

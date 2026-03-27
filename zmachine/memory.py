@@ -1,6 +1,6 @@
-from error import IllegalWriteException
-from config import ZMachineConfig
-from constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
+from .error import IllegalWriteException
+from .config import ZMachineConfig
+from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 class MemoryMap:
     def __init__(self, config: ZMachineConfig):
@@ -21,7 +21,7 @@ class MemoryMap:
             self.flags1_mask |= 1
         self.set_screen_flags()
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int | slice):
         if isinstance(item, slice):
             return self._memory_map[item.start:item.stop:item.step]
         elif isinstance(item, int):
@@ -35,28 +35,28 @@ class MemoryMap:
             self._memory_map[key] = value
         raise Exception('Invalid type for array index')
 
-    def byte_addr(self, ptr):
+    def byte_addr(self, ptr: int) -> int:
         return self.read_word(ptr)
 
-    def word_addr(self, ptr):
+    def word_addr(self, ptr) -> int:
         return self.read_word(ptr) << 1
 
-    def unpack_addr(self, packed_addr):
+    def unpack_addr(self, packed_addr: int) -> int:
         shift = 1 if self._version <= 3 else 2
         return packed_addr << shift
 
-    def read_byte(self, addr):
+    def read_byte(self, addr: int) -> int:
         return self._memory_map[addr]
 
-    def read_word(self, addr):
+    def read_word(self, addr: int) -> int:
         return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
-    def write_byte(self, addr, val):
+    def write_byte(self, addr: int, val: int):
         if addr >= self.config.static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val & 0xff
 
-    def write_word(self, addr, val):
+    def write_word(self, addr: int, val: int):
         if addr + 1 >= self.config.static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val >> 8 & 0xff

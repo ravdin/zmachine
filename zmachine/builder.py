@@ -1,13 +1,13 @@
-from screen import *
-from __curses import CursesAdapter
-from memory import MemoryMap
-from event import EventManager
-from input import InputStreamManager
-from output import OutputStreamManager
-from hotkey import HotkeyManager
-from interpreter import ZMachineInterpreter
-from config import ZMachineConfig
-from constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
+from .screen import *
+from .curses import CursesAdapter
+from .memory import MemoryMap
+from .event import EventManager
+from .input import InputStreamManager
+from .output import OutputStreamManager
+from .hotkey import HotkeyManager
+from .interpreter import ZMachineInterpreter
+from .config import ZMachineConfig
+from .constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
 
 
 class ZMachineBuilder:

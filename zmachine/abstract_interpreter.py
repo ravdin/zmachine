@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
-from object_table import ObjectTable
-from enums import RoutineType
+from .object_table import ObjectTable
+from .enums import RoutineType
 
 
 class AbstractZMachineInterpreter(ABC):

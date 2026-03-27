@@ -1,19 +1,22 @@
 from zmachine.screen import ScreenV4
-from zmachine.__curses import CursesAdapter
+from zmachine.config import ZMachineConfig
+from zmachine.curses import CursesAdapter
 from zmachine.output import ScreenStream
-from zmachine.event import EventArgs
+from zmachine.enums import TextStyle, WindowPosition
+from zmachine.event import EventManager, EventArgs
 
 
 class ScreenTest:
     def __init__(self, version: int):
         self.version = version
-        self.adapter = CursesAdapter()
-        self.screen = ScreenV4(self.adapter)
+        config = ZMachineConfig(game_file = '',version = version)
+        self.event_manager = EventManager()
+        self.adapter = CursesAdapter(config)
+        self.screen = ScreenV4(self.adapter, self.event_manager)
         self.stream = ScreenStream(self.screen)
         self.stream.buffer_mode = True
         self.height = self.adapter.height
         self.width = self.adapter.width
-        self.event_manager = self.stream.event_manager
         self.init_status_line()
         self.post_init()
 
@@ -57,13 +60,12 @@ class ScreenTest:
 
     def write_message(self, message):
         self.set_window(0)
-        self.stream.buffer_mode = True
         self.event_manager.pre_read_input.invoke(self, EventArgs())
         self.stream.write(f"{message} (press any key)...", True)
         self.read_char()
 
-    def read_char(self):
-        self.adapter.get_input_char()
+    def read_char(self, echo=False):
+        self.adapter.get_input_char(echo=echo)
 
     def set_text_style(self, style):
         self.event_manager.set_text_style.invoke(self, EventArgs(style=style))
@@ -84,7 +86,7 @@ class ScreenTest:
         self.set_text_style(0)
         self.stream.write(" ", False)
         for y in range(3, 6):
-            self.set_text_style(1)
+            self.set_text_style(TextStyle.REVERSE)
             self.set_cursor(y, 1)
             self.stream.write("  " * menu_width, False)
         for i in range(4):
@@ -104,11 +106,15 @@ class ScreenTest:
         self.write_message("Menu test complete, should see selected menu items in lower window")
 
     def exit_menu(self):
-        self.erase_window(1)
+        self.erase_window(WindowPosition.UPPER)
         self.split_window(1)
         self.write_to_status_line("Upper window line 1", 1, 3)
 
     def set_window(self, window_id):
+        if window_id == WindowPosition.UPPER:
+            self.stream.buffer_mode = False
+        else:
+            self.stream.buffer_mode = True
         self.event_manager.set_window.invoke(self, EventArgs(window_id=window_id))
 
     def set_cursor(self, y, x):
@@ -148,8 +154,8 @@ In one long bloody thread, from tail to snout.
             self.write_message("Can't test overlay, window is too narrow")
             return
         self.split_window(8)
-        self.set_window(1)
-        self.set_text_style(1)
+        self.set_window(WindowPosition.UPPER)
+        self.set_text_style(TextStyle.REVERSE)
         x_pos = (self.width - overlay_width) // 2
         y_pos = 4
         for line in text.split("\n"):
@@ -161,7 +167,7 @@ In one long bloody thread, from tail to snout.
             y_pos += 1
         self.split_window(1)
         self.write_to_status_line("Upper window line 1", 1)
-        self.set_window(0)
+        self.set_window(WindowPosition.LOWER)
         self.write_message("Should see overlay with lower window text preserved")
 
     def test_erase_window(self):

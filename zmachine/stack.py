@@ -1,16 +1,16 @@
-from enums import RoutineType
-from constants import MAX_STACK_LENGTH
+from .enums import RoutineType
+from .constants import MAX_STACK_LENGTH
 from typing import List
 
 
 class StackFrame:
     def __init__(self, **kwargs):
-        self.local_vars = []
-        self.eval_stack = EvalStack()
-        self.return_pc = 0
-        self.store_varnum = 0
-        self.arg_count = 0
-        self.routine_type = RoutineType.STORE
+        self.local_vars: list[int] = []
+        self.eval_stack: EvalStack = EvalStack()
+        self.return_pc: int = 0
+        self.store_varnum: int = 0
+        self.arg_count: int = 0
+        self.routine_type: RoutineType = RoutineType.STORE
         for attr, val in kwargs.items():
             setattr(self, attr, val)
 
@@ -30,13 +30,13 @@ class CallStack:
             self.frame_ptr = 1
 
     @property
-    def current_frame(self):
+    def current_frame(self) -> 'StackFrame':
         if self.frame_ptr <= 0:
             raise Exception('No current call frame')
         return self.frames[self.frame_ptr - 1]
 
     @property
-    def eval_stack(self):
+    def eval_stack(self) -> 'EvalStack':
         return self.current_frame.eval_stack
 
     def push(self, **kwargs):
@@ -57,7 +57,7 @@ class CallStack:
         self.frame_ptr = 1 if self.has_dummy_frame else 0
         self.eval_stack.clear()
 
-    def get_local_var(self, index) -> int:
+    def get_local_var(self, index: int) -> int:
         local_vars = self.current_frame.local_vars
         if index >= len(local_vars):
             raise Exception('Invalid index for local variable')
@@ -108,7 +108,7 @@ class CallStack:
             result.extend(frame_bytes)
         return result
 
-    def deserialize(self, data: bytearray):
+    def deserialize(self, data: bytes):
         frame_index = 0
         data_ptr = 0
         while data_ptr < len(data):
@@ -152,11 +152,10 @@ class CallStack:
 
 
 class EvalStack:
-    def __init__(self, items: List[int] = None):
+    def __init__(self, items: List[int] = []):
         self.stack: List[int] = []
         self.sp: int = 0
-        if items is not None:
-            self.set_items(items)
+        self.set_items(items)
 
     def push(self, value: int):
         if self.sp >= MAX_STACK_LENGTH:

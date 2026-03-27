@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
-from constants import SUPPORTED_VERSIONS
-from error import InvalidGameFileException
+from .constants import SUPPORTED_VERSIONS
+from .error import InvalidGameFileException
 
 @dataclass(frozen=True)
 class ZMachineConfig:
@@ -36,7 +36,7 @@ class ZMachineConfig:
     """ Length of the game file in bytes. """
     checksum: int = 0
     """ Checksum of the game file, used for copy protection. """
-    interrupt_zchars: tuple[int] = field(default_factory=tuple)
+    interrupt_zchars: tuple[int, ...] = field(default_factory=tuple[int, ...])
     """ Terminating characters (version 5 and above)"""
 
     @classmethod
@@ -61,7 +61,7 @@ class ZMachineConfig:
         abbreviation_table_addr = int.from_bytes(game_data[0x18:0x1a], "big")
         file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2)
         checksum = int.from_bytes(game_data[0x1c:0x1e], "big")
-        interrupt_zchars = []
+        interrupt_zchars: list[int] = []
         if version >= 5:
             zchars_addr = int.from_bytes(game_data[0x2e:0x30], "big")
             zchar = game_data[zchars_addr]

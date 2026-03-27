@@ -9,3 +9,4 @@ debug.txt
 .vscode
 .DS_Store
 .idea
+.mypy_cache

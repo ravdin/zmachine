@@ -2,7 +2,7 @@
 
 Python 3 implementation of a z-machine interpreter, for playing Infocom games. To play a z-machine file:
 
-`python zmachine [GAME_FILE]`
+`python -m zmachine [GAME_FILE]`
 
 The interpreter supports z-machine versions 3, 4 and 5. Version 4 games include Trinity, AMFV, and Bureaucracy. Version 5 games include Border Zone and Beyond Zork. Save files are in [Quetzal](http://inform-fiction.org/zmachine/standards/quetzal/index.html) format and should be compatible with the Frotz interpreter.
 
