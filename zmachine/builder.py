@@ -5,6 +5,7 @@ from .event import EventManager
 from .input import InputStreamManager
 from .output import OutputStreamManager
 from .hotkey import HotkeyManager
+from .quetzal import Quetzal
 from .interpreter import ZMachineInterpreter
 from .config import ZMachineConfig
 from .constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
@@ -16,11 +17,12 @@ class ZMachineBuilder:
         event_manager = EventManager()
         memory_map = MemoryMap(config)
         screen = self._initialize_screen(config, event_manager)
-        hotkey_manager = HotkeyManager(config, screen, event_manager)
+        hotkey_manager = HotkeyManager(config, screen.terminal_adapter, event_manager)
+        quetzal = Quetzal(memory_map, screen.terminal_adapter)
         self._initialize_header(memory_map, screen, config.version)
-        self.input_stream_manager = InputStreamManager(screen, event_manager, config)
-        self.output_stream_manager = OutputStreamManager(screen, memory_map, event_manager)
-        self.interpreter = ZMachineInterpreter(memory_map, config, event_manager)
+        self.input_stream_manager = InputStreamManager(screen, screen.terminal_adapter, event_manager, config)
+        self.output_stream_manager = OutputStreamManager(screen, screen.terminal_adapter, memory_map, event_manager)
+        self.interpreter = ZMachineInterpreter(memory_map, config, screen, quetzal, event_manager)
 
     @staticmethod
     def _initialize_screen(config: ZMachineConfig, event_manager: EventManager) -> BaseScreen:

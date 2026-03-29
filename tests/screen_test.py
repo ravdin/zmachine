@@ -12,7 +12,7 @@ class ScreenTest:
         config = ZMachineConfig(game_file = '',version = version)
         self.event_manager = EventManager()
         self.adapter = CursesAdapter(config)
-        self.screen = ScreenV4(self.adapter, self.event_manager)
+        self.screen = ScreenV4(self.adapter, self.event_manager, 4)
         self.stream = ScreenStream(self.screen)
         self.stream.buffer_mode = True
         self.height = self.adapter.height
@@ -33,25 +33,25 @@ class ScreenTest:
         self.test_erase_window()
 
     def init_status_line(self):
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=-2))
-        self.split_window(1)
-        self.set_window(1)
+        self.screen.erase_window(-2)
+        self.screen.split_window(1)
+        self.screen.set_window(1)
         self.stream.buffer_mode = False
-        self.set_text_style(1)
+        self.screen.set_text_style(1)
         for _ in range(self.width + 1):
             self.stream.write(' ', False)
-        self.set_window(0)
+        self.screen.set_window(0)
         self.stream.buffer_mode = True
 
     def write_to_status_line(self, text, line, lpad=0):
-        self.set_window(1)
+        self.screen.set_window(1)
         self.stream.buffer_mode = False
-        self.set_cursor(line, 1)
+        self.screen.set_cursor(line, 1)
         self.stream.write(" " * lpad, False)
         self.stream.write(text, False)
         for _ in range(lpad + len(text), self.width + 1):
             self.stream.write(' ', False)
-        self.set_window(0)
+        self.screen.set_window(0)
         self.stream.buffer_mode = True
 
     def post_init(self):
@@ -59,7 +59,7 @@ class ScreenTest:
         self.stream.write(f"Screen height: {self.height}", True)
 
     def write_message(self, message):
-        self.set_window(0)
+        self.screen.set_window(0)
         self.event_manager.pre_read_input.invoke(self, EventArgs())
         self.stream.write(f"{message} (press any key)...", True)
         self.read_char()
@@ -67,47 +67,44 @@ class ScreenTest:
     def read_char(self, echo=False):
         self.adapter.get_input_char(echo=echo)
 
-    def set_text_style(self, style):
-        self.event_manager.set_text_style.invoke(self, EventArgs(style=style))
-
     def enter_menu(self):
         menu_width = 40
         if self.width < menu_width:
             self.write_message('Unable to test menu, screen too narrow')
             return
-        self.erase_window(0)
-        self.split_window(5)
+        self.screen.erase_window(0)
+        self.screen.split_window(5)
         self.write_to_status_line("Testing menu", 1, 3)
         self.set_window(1)
         self.stream.buffer_mode = False
         menu_items = ['Menu item 1', 'Menu item 2', 'Menu item 3', 'Menu item 4']
         cursor_coordinates = [(3, 1), (4, 1), (5, 1), (3, 21)]
-        self.set_cursor(2, 1)
-        self.set_text_style(0)
+        self.screen.set_cursor(2, 1)
+        self.screen.set_text_style(0)
         self.stream.write(" ", False)
         for y in range(3, 6):
-            self.set_text_style(TextStyle.REVERSE)
-            self.set_cursor(y, 1)
+            self.screen.set_text_style(TextStyle.REVERSE)
+            self.screen.set_cursor(y, 1)
             self.stream.write("  " * menu_width, False)
         for i in range(4):
-            self.set_cursor(*cursor_coordinates[i])
+            self.screen.set_cursor(*cursor_coordinates[i])
             self.stream.write("  " + menu_items[i], False)
-        self.set_cursor(*cursor_coordinates[0])
+        self.screen.set_cursor(*cursor_coordinates[0])
         self.stream.write(">", False)
         self.write_message(menu_items[0])
         for menu_ptr in range(1, 4):
-            self.set_window(1)
+            self.screen.set_window(1)
             self.stream.buffer_mode = False
-            self.set_cursor(*cursor_coordinates[menu_ptr-1])
+            self.screen.set_cursor(*cursor_coordinates[menu_ptr-1])
             self.stream.write(" ", False)
-            self.set_cursor(*cursor_coordinates[menu_ptr])
+            self.screen.set_cursor(*cursor_coordinates[menu_ptr])
             self.stream.write(">", False)
             self.write_message(menu_items[menu_ptr])
         self.write_message("Menu test complete, should see selected menu items in lower window")
 
     def exit_menu(self):
-        self.erase_window(WindowPosition.UPPER)
-        self.split_window(1)
+        self.screen.erase_window(WindowPosition.UPPER)
+        self.screen.split_window(1)
         self.write_to_status_line("Upper window line 1", 1, 3)
 
     def set_window(self, window_id):
@@ -115,26 +112,17 @@ class ScreenTest:
             self.stream.buffer_mode = False
         else:
             self.stream.buffer_mode = True
-        self.event_manager.set_window.invoke(self, EventArgs(window_id=window_id))
-
-    def set_cursor(self, y, x):
-        self.event_manager.set_cursor.invoke(self, EventArgs(y=y, x=x))
-
-    def split_window(self, lines):
-        self.event_manager.split_window.invoke(self, EventArgs(lines=lines))
-
-    def erase_window(self, window_id):
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=window_id))
+        self.screen.set_window(window_id)
 
     def test_split_window(self):
         self.write_message("1. Setting upper window to 1 line")
         self.write_to_status_line("Upper window line 1", 1, 3)
         self.write_message("2. Setting upper window to 2 lines")
-        self.split_window(2)
+        self.screen.split_window(2)
         self.write_to_status_line("Upper window line 1", 1, 3)
         self.write_to_status_line("Upper window line 2", 2, 3)
         self.write_message("3. Setting upper window to 1 line")
-        self.split_window(1)
+        self.screen.split_window(1)
         self.write_message("Split test complete, 3 lines expected in the lower window")
 
     def test_menu(self):
@@ -153,26 +141,26 @@ In one long bloody thread, from tail to snout.
         if self.width <= overlay_width:
             self.write_message("Can't test overlay, window is too narrow")
             return
-        self.split_window(8)
-        self.set_window(WindowPosition.UPPER)
-        self.set_text_style(TextStyle.REVERSE)
+        self.screen.split_window(8)
+        self.screen.set_window(WindowPosition.UPPER)
+        self.screen.set_text_style(TextStyle.REVERSE)
         x_pos = (self.width - overlay_width) // 2
         y_pos = 4
         for line in text.split("\n"):
-            self.set_cursor(y_pos, x_pos)
+            self.screen.set_cursor(y_pos, x_pos)
             self.stream.write(" " * 2, False)
             self.stream.write(line, False)
             for _ in range(2 + len(line), overlay_width + 1):
                 self.stream.write(" ", False)
             y_pos += 1
-        self.split_window(1)
+        self.screen.split_window(1)
         self.write_to_status_line("Upper window line 1", 1)
-        self.set_window(WindowPosition.LOWER)
+        self.screen.set_window(WindowPosition.LOWER)
         self.write_message("Should see overlay with lower window text preserved")
 
     def test_erase_window(self):
         self.write_message("Erasing lower window...")
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=0))
+        self.screen.erase_window(WindowPosition.LOWER)
 
     def shutdown(self):
         self.stream.write("Shutting down...", False)

@@ -6,6 +6,7 @@ from .constants import INPUT_BUFFER_LENGTH
 from .memory import MemoryMap
 from .object_table import ObjectTable
 from .event import EventArgs, EventManager
+from .protocol import IScreen
 from .text import TextUtils
 from .quetzal import Quetzal
 from .undo import UndoStack
@@ -15,13 +16,20 @@ from .error import *
 
 
 class ZMachineInterpreter(AbstractZMachineInterpreter):
-    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, event_manager: EventManager, debug: bool = False):
+    def __init__(self, 
+                 memory_map: MemoryMap,
+                 config: ZMachineConfig, 
+                 screen: IScreen,
+                 quetzal: Quetzal,
+                 event_manager: EventManager, 
+                 debug: bool = False):
         self.memory_map = memory_map
         self.config = config
+        self.screen = screen
         self.event_manager = event_manager
         self.pc = self.config.initial_pc
         self.text_utils = TextUtils(memory_map)
-        self.quetzal = Quetzal(memory_map, event_manager)
+        self.quetzal = quetzal
         self._object_table = ObjectTable(memory_map)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
@@ -86,9 +94,8 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         # In later versions, treat as a nop.
         if self.version > 3:
             return
-        location, right_status = self.get_status_strings()
-        event_args = EventArgs(location=location, right_status=right_status)
-        self.event_manager.refresh_status_line.invoke(self, event_args)
+        location, status = self.get_status_strings()
+        self.screen.refresh_status_line(location, status)
 
     def get_status_strings(self):
         # This should be for version 3 only.
@@ -119,16 +126,17 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             self.memory_map.reset_dynamic_memory(dynamic_mem)
         self.pc = self.config.initial_pc
         self.call_stack.clear()
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=WindowPosition.LOWER))
+        self.screen.erase_window(WindowPosition.LOWER)
 
     def do_save(self) -> bool:
         return self.quetzal.do_save(self.pc, self.call_stack)
 
     def do_restore(self) -> bool:
-        def reset_pc(pc: int):
-            self.pc = pc
-
-        return self.quetzal.do_restore(self.call_stack, reset_pc)
+        restored_pc = self.quetzal.do_restore(self.call_stack)
+        if restored_pc is None:
+            return False
+        self.pc = restored_pc
+        return True
 
     def do_save_undo(self):
         call_stack_bytes = self.call_stack.serialize()
@@ -501,22 +509,22 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             self.write_byte(coded_buffer + i, encoded[i])
 
     def do_split_window(self, lines: int):
-        self.event_manager.split_window.invoke(self, EventArgs(lines=lines))
+        self.screen.split_window(lines)
 
     def do_set_window(self, window_id: int):
-        self.event_manager.set_window.invoke(self, EventArgs(window_id=window_id))
+        self.screen.set_window(window_id)
     
     def do_erase_window(self, window_id: int):
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=window_id))
+        self.screen.erase_window(window_id)
     
     def do_set_cursor(self, y: int, x: int):
-        self.event_manager.set_cursor.invoke(self, EventArgs(y=y, x=x))
+        self.screen.set_cursor(y, x)
 
     def do_set_text_style(self, style: int):
-        self.event_manager.set_text_style.invoke(self, EventArgs(style=style))
+        self.screen.set_text_style(style)
 
     def do_set_buffer_mode(self, mode: bool):
-        self.event_manager.set_buffer_mode.invoke(self, EventArgs(mode=mode))
+        self.screen.buffer_mode = mode
 
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         event_args = EventArgs(stream_id=stream_id)
@@ -525,11 +533,10 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         self.event_manager.select_output_stream.invoke(self, event_args)
 
     def do_sound_effect(self, type):
-        self.event_manager.sound_effect.invoke(self, EventArgs(type=type))
+        self.screen.sound_effect(type)
 
     def do_set_color(self, foreground_color: int, background_color: int):
-        e = EventArgs(foreground_color=foreground_color, background_color=background_color)
-        return self.event_manager.set_color.invoke(self, e)
+        self.screen.set_color(background_color, foreground_color)
 
     def write_to_output_streams(self, text, newline=False):
         event_args = EventArgs(text=text, newline=newline)
@@ -546,10 +553,12 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return addr
 
     def do_print_table(self, addr, width, height, skip):
-        table = [[0] * width for _ in range(height)]
+        table = [''] * height
         for i in range(height):
+            row = [''] * width
             for j in range(width):
-                table[i][j] = self.read_byte(addr)
+                row[j] = chr(self.read_byte(addr))
                 addr += 1
+            table[i] = str.join('', row)
             addr += skip
-        self.event_manager.print_table.invoke(self, EventArgs(table=table))
+        self.screen.print_table(table)

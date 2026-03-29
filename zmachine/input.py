@@ -2,10 +2,11 @@ import re
 import os
 from abc import ABC, abstractmethod
 from typing import Callable
-from .enums import TerminalEscape, InputStreamType, Hotkey, WindowPosition
+from .enums import TerminalEscape, InputStreamType, Hotkey
 from .config import ZMachineConfig
 from .constants import ESCAPE_CHAR
-from .screen import BaseScreen, TerminalAdapter
+from .screen import TerminalAdapter
+from .protocol import IScreen
 from .event import EventManager, EventArgs
 
 class KeyboardInputParser:
@@ -36,10 +37,10 @@ class KeyboardInputParser:
             self.terminal_adapter.clear_to_eol()
 
 class InputStreamManager:
-    def __init__(self, screen: BaseScreen, event_manager: EventManager, config: ZMachineConfig):
+    def __init__(self, screen: IScreen, terminal_adapter: TerminalAdapter, event_manager: EventManager, config: ZMachineConfig):
         self.screen = screen
-        self.keyboard_input_stream = KeyboardInputStream(screen, event_manager, config)
-        self.playback_input_stream = PlaybackInputStream(screen, event_manager)
+        self.keyboard_input_stream = KeyboardInputStream(screen, terminal_adapter, event_manager, config)
+        self.playback_input_stream = PlaybackInputStream(terminal_adapter, event_manager)
         self.active_stream: InputStream = self.keyboard_input_stream
         self.register_delegates(event_manager)
 
@@ -79,8 +80,8 @@ class InputStreamManager:
 
 class InputStream(ABC):
     """Base class for input sources"""
-    def __init__(self, screen: BaseScreen, event_manager: EventManager):
-        self.screen = screen
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        self.terminal_adapter = terminal_adapter
         self.event_manager = event_manager
 
     @abstractmethod
@@ -93,10 +94,11 @@ class InputStream(ABC):
         pass
         
 class KeyboardInputStream(InputStream):
-    def __init__(self, screen: BaseScreen, event_manager: EventManager, config: ZMachineConfig):
-        super().__init__(screen, event_manager)
+    def __init__(self, screen: IScreen, terminal_adapter: TerminalAdapter, event_manager: EventManager, config: ZMachineConfig):
+        super().__init__(terminal_adapter, event_manager)
+        self.screen = screen
         self.config = config
-        self.keyboard_input_parser = KeyboardInputParser(screen.terminal_adapter)
+        self.keyboard_input_parser = KeyboardInputParser(terminal_adapter)
 
     def read_input(self,
         timeout_ms: int,
@@ -178,8 +180,8 @@ class KeyboardInputStream(InputStream):
         self.keyboard_input_parser.set_timeout(0)
 
 class PlaybackInputStream(InputStream):
-    def __init__(self, screen: BaseScreen, event_manager: EventManager):
-        super().__init__(screen, event_manager)
+    def __init__(self, terminal_adapter: TerminalAdapter, event_manager: EventManager):
+        super().__init__(terminal_adapter, event_manager)
         self.commands: list[str] = []
         self.command_index = 0
 
@@ -205,26 +207,26 @@ class PlaybackInputStream(InputStream):
         elif len(text_buffer) == 1:
             matches = re.match(r'^\[(\d+)\]$', command)
             if matches is None:
-                self.screen.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
+                self.terminal_adapter.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
                 text_buffer[0] = 13
                 self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
             else:
                 zscii_code = int(matches.groups()[0])
                 text_buffer[0] = zscii_code
                 if echo and 32 <= zscii_code <= 126:
-                    self.screen.write_to_screen(chr(zscii_code))
+                    self.terminal_adapter.write_to_screen(chr(zscii_code))
         else:
             # Parse format: "command text" or "command text[terminating_char]"
             matches = re.match(r'^(.+?)(?:\[(\d+)\])?$', command)
             if matches is None:
-                self.screen.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
+                self.terminal_adapter.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
                 text_buffer[buffer_pos] = 13
                 self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
                 return
             groups = matches.groups()
             command_text = groups[0]
             if echo:
-                self.screen.write_to_screen(command_text.upper() + '\n')
+                self.terminal_adapter.write_to_screen(command_text.upper() + '\n')
             if len(groups) > 1 and groups[1] is not None:
                 terminating_char = int(groups[1])
                 if terminating_char == 0:

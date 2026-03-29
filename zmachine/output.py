@@ -1,16 +1,17 @@
 from .config import ZMachineConfig
 from .memory import MemoryMap
-from .screen import BaseScreen
+from .protocol import IScreen
 from .event import EventManager, EventArgs
 from .enums import WindowPosition, OutputStreamType
 from .error import StreamException
+from .screen import TerminalAdapter
 import os
 
 
 class OutputStreamManager:
-    def __init__(self, screen: BaseScreen, memory_map: MemoryMap, event_manager: EventManager):
+    def __init__(self, screen: IScreen, terminal: TerminalAdapter, memory_map: MemoryMap, event_manager: EventManager):
         self.screen_stream = ScreenStream(screen)
-        self.transcript_stream = TranscriptStream(memory_map, event_manager)
+        self.transcript_stream = TranscriptStream(memory_map, screen, terminal)
         self.memory_stream = MemoryStream(memory_map)
         self.record_stream = RecordStream()
         self.streams = {
@@ -51,8 +52,6 @@ class OutputStreamManager:
 class OutputStream:
     def __init__(self, is_active: bool = False):
         self.is_active = is_active
-        self.active_window = WindowPosition.LOWER
-        self.buffer_mode = True
 
     def open(self, **kwargs):
         self.is_active = True
@@ -64,38 +63,27 @@ class OutputStream:
         self.is_active = False
 
     def register_delegates(self, event_manager: EventManager):
-        event_manager.set_window += self.set_window_handler
-        event_manager.set_buffer_mode += self.set_buffer_mode_handler
-
-    def set_window_handler(self, sender, e: EventArgs):
-        self.active_window = e.window_id
-
-    def set_buffer_mode_handler(self, sender, e: EventArgs):
-        self.buffer_mode = e.mode not in (0, False)
+        pass
 
 
 class ScreenStream(OutputStream):
-    _BUFFER_LENGTH = 1024
-
-    def __init__(self, screen: BaseScreen):
+    def __init__(self, screen: IScreen):
         super().__init__(True)
         self.screen = screen
 
     def write(self, text: str, newline: bool):
         if self.is_active:
-            if self.buffer_mode and self.active_window == WindowPosition.LOWER:
-                self.screen.write_to_buffer(text, newline)
-            else:
-                self.screen.print_to_active_window(text, newline)
+            self.screen.print(text, newline)
 
 
 class TranscriptStream(OutputStream):
     _BUFFER_LENGTH = 1024
 
-    def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
+    def __init__(self, memory_map: MemoryMap, screen: IScreen, terminal: TerminalAdapter):
         super().__init__()
         self.config: ZMachineConfig = memory_map.config
-        self.event_manager: EventManager = event_manager
+        self.screen = screen
+        self.terminal = terminal
         self.buffer: list[str] = ['\0'] * self._BUFFER_LENGTH
         self.buffer_ptr: int = 0
         self.script_full_path: str | None = None
@@ -111,7 +99,7 @@ class TranscriptStream(OutputStream):
 
     def write(self, text: str, newline: bool):
         self.is_active = self.memory_map.transcript_active_flag
-        if not self.is_active or self.active_window != WindowPosition.LOWER:
+        if not self.is_active or self.screen.active_window_id != WindowPosition.LOWER:
             return
         if self.script_full_path is None:
             self.script_full_path = self.prompt_transcript_file()
@@ -155,24 +143,15 @@ class TranscriptStream(OutputStream):
             filename = os.path.basename(game_file)
             base_filename = os.path.splitext(filename)[0]
             default_transcript_file = f'{base_filename}.txt'
-            self.interpreter_prompt('Enter a file name.')
-            script_file = self.interpreter_input(f'Default is "{default_transcript_file}": ')
+            self.terminal.write_to_screen('Enter a file name.\n')
+            script_file = self.terminal.get_input_string(f'Default is "{default_transcript_file}": ', False)
             if script_file == '':
                 script_file = default_transcript_file
             # If the file already exists and it's a new session, the transcript file will be overwritten.
             self.transcript_full_path = os.path.join(filepath, script_file)
         return self.transcript_full_path
 
-    def interpreter_prompt(self, text):
-        self.event_manager.interpreter_prompt.invoke(self, EventArgs(text=text))
-
-    def interpreter_input(self, text):
-        event_args = EventArgs(text=text)
-        self.event_manager.interpreter_input.invoke(self, event_args)
-        return event_args.response
-
     def pre_read_input_handler(self, sender, e: EventArgs):
-        # Write all output in the buffer when with the command prompt.
         self.flush_buffer()
 
     def post_read_input_handler(self, sender, e: EventArgs):
