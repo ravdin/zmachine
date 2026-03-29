@@ -1,46 +1,59 @@
 from .config import ZMachineConfig
+from .settings import RuntimeSettings
 from .memory import MemoryMap
-from .screen import BaseScreen
-from .event import EventManager, EventArgs
+from .protocol import IScreen, ITerminalAdapter, IOutputStream, IMemoryOutputStream, IRecordOutputStream
+from .event import EventManager, EventArgs, PostReadInputEventArgs
 from .enums import WindowPosition, OutputStreamType
 from .error import StreamException
 import os
 
 
 class OutputStreamManager:
-    def __init__(self, screen: BaseScreen, memory_map: MemoryMap, event_manager: EventManager):
-        self.screen_stream = ScreenStream(screen)
-        self.transcript_stream = TranscriptStream(memory_map, event_manager)
-        self.memory_stream = MemoryStream(memory_map)
-        self.record_stream = RecordStream()
+    def __init__(self, 
+                 screen: IScreen,
+                 memory_map: MemoryMap,
+                 terminal_adapter: ITerminalAdapter, 
+                 config: ZMachineConfig,
+                 runtime_settings: RuntimeSettings,
+                 event_manager: EventManager
+                ):
+        self._screen_stream = ScreenStream(screen)
+        self._transcript_stream = TranscriptStream(config, runtime_settings, screen, terminal_adapter)
+        self._memory_stream = MemoryStream(memory_map)
+        self._record_stream = RecordStream()
         self.streams = {
-            OutputStreamType.SCREEN: self.screen_stream,
-            OutputStreamType.TRANSCRIPT: self.transcript_stream,
-            OutputStreamType.MEMORY: self.memory_stream,
-            OutputStreamType.RECORD: self.record_stream
+            OutputStreamType.SCREEN: self._screen_stream,
+            OutputStreamType.TRANSCRIPT: self._transcript_stream,
+            OutputStreamType.MEMORY: self._memory_stream,
+            OutputStreamType.RECORD: self._record_stream
         }
         self.register_delegates(event_manager)
 
     def register_delegates(self, event_manager: EventManager):
-        event_manager.write_to_streams += self.write_to_streams_handler
-        event_manager.select_output_stream += self.select_stream_handler
         for stream in self.streams.values():
             stream.register_delegates(event_manager)
 
-    def select_stream_handler(self, sender, e: EventArgs):
-        stream_id = e.stream_id
-        if stream_id == 0:
-            return
-        if abs(stream_id) not in self.streams.keys():
-            raise StreamException(f"Unrecognized stream: {stream_id}")
-        if stream_id > 0:
-            self.streams[stream_id].open(**e.kwargs())
-        else:
-            self.streams[-stream_id].close()
+    @property
+    def screen_stream(self) -> IOutputStream:
+        """The output stream for writing to the screen."""
+        return self._screen_stream
 
-    def write_to_streams_handler(self, sender, e: EventArgs):
-        text = e.text
-        newline = e.get('newline', False)
+    @property
+    def transcript_stream(self) -> IOutputStream:
+        """The output stream for writing to the transcript file."""
+        return self._transcript_stream
+
+    @property
+    def memory_stream(self) -> IMemoryOutputStream:
+        """The output stream for writing to memory."""
+        return self._memory_stream
+
+    @property
+    def record_stream(self) -> IRecordOutputStream:
+        """The output stream for writing to a record file."""
+        return self._record_stream
+
+    def write_to_streams(self, text: str, newline: bool = False):
         if self.memory_stream.is_active:
             self.memory_stream.write(text, newline)
         else:
@@ -50,12 +63,15 @@ class OutputStreamManager:
 
 class OutputStream:
     def __init__(self, is_active: bool = False):
-        self.is_active = is_active
-        self.active_window = WindowPosition.LOWER
-        self.buffer_mode = True
+        self._is_active = is_active
 
-    def open(self, **kwargs):
-        self.is_active = True
+    @property
+    def is_active(self) -> bool:
+        return self._is_active
+    
+    @is_active.setter
+    def is_active(self, value: bool):
+        self._is_active = value
 
     def write(self, text: str, newline: bool):
         raise NotImplementedError('Write operation not supported from base class')
@@ -64,54 +80,46 @@ class OutputStream:
         self.is_active = False
 
     def register_delegates(self, event_manager: EventManager):
-        event_manager.set_window += self.set_window_handler
-        event_manager.set_buffer_mode += self.set_buffer_mode_handler
-
-    def set_window_handler(self, sender, e: EventArgs):
-        self.active_window = e.window_id
-
-    def set_buffer_mode_handler(self, sender, e: EventArgs):
-        self.buffer_mode = e.mode not in (0, False)
+        pass
 
 
 class ScreenStream(OutputStream):
-    _BUFFER_LENGTH = 1024
-
-    def __init__(self, screen: BaseScreen):
+    def __init__(self, screen: IScreen):
         super().__init__(True)
         self.screen = screen
 
+    def open(self):
+        self.is_active = True
+
     def write(self, text: str, newline: bool):
         if self.is_active:
-            if self.buffer_mode and self.active_window == WindowPosition.LOWER:
-                self.screen.write_to_buffer(text, newline)
-            else:
-                self.screen.print_to_active_window(text, newline)
+            self.screen.print(text, newline)
 
 
 class TranscriptStream(OutputStream):
     _BUFFER_LENGTH = 1024
 
-    def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
+    def __init__(self, config: ZMachineConfig, runtime_settings: RuntimeSettings, screen: IScreen, terminal_adapter: ITerminalAdapter):
         super().__init__()
-        self.config: ZMachineConfig = memory_map.config
-        self.event_manager: EventManager = event_manager
+        self.config = config
+        self.runtime_settings = runtime_settings
+        self.screen = screen
+        self.terminal_adapter = terminal_adapter
         self.buffer: list[str] = ['\0'] * self._BUFFER_LENGTH
         self.buffer_ptr: int = 0
         self.script_full_path: str | None = None
         self.script_file_mode: str = 'w'
         self.transcript_full_path: str | None = None
-        self.memory_map = memory_map
 
-    def open(self, **kwargs):
-        super().open(**kwargs)
+    def open(self):
+        self.is_active = True
         if self.script_full_path is None:
             self.script_full_path = self.prompt_transcript_file()
-        self.memory_map.transcript_active_flag = True
+        self.runtime_settings.transcript_active_flag = True
 
     def write(self, text: str, newline: bool):
-        self.is_active = self.memory_map.transcript_active_flag
-        if not self.is_active or self.active_window != WindowPosition.LOWER:
+        self.is_active = self.runtime_settings.transcript_active_flag
+        if not self.is_active or self.screen.active_window_id != WindowPosition.LOWER:
             return
         if self.script_full_path is None:
             self.script_full_path = self.prompt_transcript_file()
@@ -128,13 +136,13 @@ class TranscriptStream(OutputStream):
 
     def close(self):
         super().close()
-        self.memory_map.transcript_active_flag = False
+        self.runtime_settings.transcript_active_flag = False
 
     def register_delegates(self, event_manager):
         super().register_delegates(event_manager)
         event_manager.pre_read_input += self.pre_read_input_handler
         event_manager.post_read_input += self.post_read_input_handler
-        event_manager.quit += self.quit_handler
+        event_manager.on_quit += self.on_quit_handler
 
     def flush_buffer(self):
         # File output is not word wrapped.
@@ -155,33 +163,24 @@ class TranscriptStream(OutputStream):
             filename = os.path.basename(game_file)
             base_filename = os.path.splitext(filename)[0]
             default_transcript_file = f'{base_filename}.txt'
-            self.interpreter_prompt('Enter a file name.')
-            script_file = self.interpreter_input(f'Default is "{default_transcript_file}": ')
+            self.terminal_adapter.write_to_screen('Enter a file name.\n')
+            script_file = self.terminal_adapter.get_input_string(f'Default is "{default_transcript_file}": ', False)
             if script_file == '':
                 script_file = default_transcript_file
             # If the file already exists and it's a new session, the transcript file will be overwritten.
             self.transcript_full_path = os.path.join(filepath, script_file)
         return self.transcript_full_path
 
-    def interpreter_prompt(self, text):
-        self.event_manager.interpreter_prompt.invoke(self, EventArgs(text=text))
-
-    def interpreter_input(self, text):
-        event_args = EventArgs(text=text)
-        self.event_manager.interpreter_input.invoke(self, event_args)
-        return event_args.response
-
     def pre_read_input_handler(self, sender, e: EventArgs):
-        # Write all output in the buffer when with the command prompt.
         self.flush_buffer()
 
-    def post_read_input_handler(self, sender, e: EventArgs):
-        command = e.get('command', None)
-        terminating_char = e.get('terminating_char', 13)
-        if terminating_char == 13:
-            self.write(command, True)
+    def post_read_input_handler(self, sender, e: PostReadInputEventArgs):
+        if e.command is None:
+            return
+        if e.terminating_char == 13:
+            self.write(e.command, True)
 
-    def quit_handler(self, sender, e: EventArgs):
+    def on_quit_handler(self, sender, e: EventArgs):
         self.flush_buffer()
 
 
@@ -195,9 +194,8 @@ class MemoryStream(OutputStream):
         self.buffer_ptr = 0
         self.stack_ptr = 0
 
-    def open(self, **kwargs):
+    def open(self, table_addr: int):
         self.is_active = True
-        table_addr = kwargs['table_addr']
         if self.stack_ptr == len(self.table_stack):
             raise StreamException('Opened too many memory streams')
         self.table_stack[self.stack_ptr] = (table_addr, self.buffer_ptr)
@@ -235,18 +233,16 @@ class RecordStream(OutputStream):
     def register_delegates(self, event_manager: EventManager):
         event_manager.post_read_input += self.post_read_input_handler
 
-    def open(self, **kwargs):
-        super().open(**kwargs)
-        self.record_full_path = kwargs['record_full_path']
+    def open(self, record_file_path: str):
+        self.is_active = True
+        self.record_full_path = record_file_path
 
-    def post_read_input_handler(self, sender, e: EventArgs):
+    def post_read_input_handler(self, sender, e: PostReadInputEventArgs):
         if not self.is_active:
             return
-        command = e.get('command', None)
-        terminating_char = e.get('terminating_char', 13)
         with open(self.record_full_path, 'a') as s:
-            if command is not None:
-                s.write(command)
-            if command is None or terminating_char != 13:
-                s.write(f'[{terminating_char}]')
+            if e.command is not None:
+                s.write(e.command)
+            if e.command is None or e.terminating_char != 13:
+                s.write(f'[{e.terminating_char}]')
             s.write("\n")

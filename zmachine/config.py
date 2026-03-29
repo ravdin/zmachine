@@ -8,8 +8,6 @@ class ZMachineConfig:
 
     game_file: str
     """ Path to the game file."""
-    debug: bool = False
-    """ If true, print instruction execution to debug.txt"""
 
     # Header values
     version: int = 0
@@ -40,7 +38,7 @@ class ZMachineConfig:
     """ Terminating characters (version 5 and above)"""
 
     @classmethod
-    def from_game_file(cls, game_file: str, debug: bool = False) -> 'ZMachineConfig':
+    def from_game_file(cls, game_file: str) -> 'ZMachineConfig':
         with open(game_file, 'rb') as s:
             game_data = s.read()
         version = game_data[0]
@@ -72,7 +70,6 @@ class ZMachineConfig:
 
         return cls(
             game_file = game_file,
-            debug = debug,
             version = version,
             release_number = release_number,
             high_memory_base_addr = high_memory_base_addr,
