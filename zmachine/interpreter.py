@@ -2,39 +2,53 @@ import os
 from . import opcodes
 from .abstract_interpreter import AbstractZMachineInterpreter
 from .config import ZMachineConfig
+from .settings import RuntimeSettings
 from .constants import INPUT_BUFFER_LENGTH
 from .memory import MemoryMap
 from .object_table import ObjectTable
-from .event import EventArgs, EventManager
+from .event import EventArgs, DebugModeEventArgs, EventManager
+from .protocol import IScreen, IInputSource, IOutputStreamManager
 from .text import TextUtils
 from .quetzal import Quetzal
 from .undo import UndoStack
-from .enums import WindowPosition, StatusType, RoutineType
+from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType
 from .stack import CallStack, EvalStack
 from .error import *
 
 
 class ZMachineInterpreter(AbstractZMachineInterpreter):
-    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, event_manager: EventManager, debug: bool = False):
+    def __init__(self, 
+                 memory_map: MemoryMap,
+                 config: ZMachineConfig, 
+                 runtime_settings: RuntimeSettings,
+                 screen: IScreen,
+                 input_source: IInputSource,
+                 output_manager: IOutputStreamManager,
+                 quetzal: Quetzal,
+                 event_manager: EventManager, 
+                 debug: bool = False):
         self.memory_map = memory_map
         self.config = config
+        self.runtime_settings = runtime_settings
+        self.screen = screen
+        self.input_source = input_source
+        self.output_manager = output_manager
         self.event_manager = event_manager
         self.pc = self.config.initial_pc
         self.text_utils = TextUtils(memory_map)
-        self.quetzal = Quetzal(memory_map, event_manager)
+        self.quetzal = quetzal
         self._object_table = ObjectTable(memory_map)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
         self.call_stack = CallStack()
         self.undo_stack = UndoStack()
+        self.runtime_settings.on_change_debug_mode += self.on_change_debug_mode_handler
         self.quit = False
-        self.debug = debug
-        event_manager.toggle_debug += self.toggle_debug_handler
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
             self.event_manager.pre_read_input += self.pre_read_input_handler
         if debug:
-            self.open_debug_file()
+            self.runtime_settings.debug_mode = True
 
     @property
     def version(self) -> int:
@@ -51,7 +65,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         except Exception as e:
             print(e.__str__())
         finally:
-            self.event_manager.quit.invoke(self, EventArgs())
+            self.event_manager.on_quit.invoke(self, EventArgs())
 
     def do_quit(self):
         self.do_show_status()
@@ -69,26 +83,20 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
 
-    def toggle_debug_handler(self, sender, e: EventArgs):
-        self.debug = not self.debug
-        e.debug_mode = self.debug
-        if self.debug:
-            self.open_debug_file()
-
-    def open_debug_file(self):
-        debug_file = 'debug.txt'
-        filepath = os.path.dirname(self.config.game_file)
-        self.debug_file = os.path.join(filepath, debug_file)
-        with open(self.debug_file, 'w') as s:
-            s.write('')
+    def on_change_debug_mode_handler(self, sender, e: DebugModeEventArgs):
+        if e.debug_mode:
+            debug_file = 'debug.txt'
+            filepath = os.path.dirname(self.config.game_file)
+            self.debug_file = os.path.join(filepath, debug_file)
+            with open(self.debug_file, 'w') as s:
+                s.write('')
 
     def do_show_status(self):
         # In later versions, treat as a nop.
         if self.version > 3:
             return
-        location, right_status = self.get_status_strings()
-        event_args = EventArgs(location=location, right_status=right_status)
-        self.event_manager.refresh_status_line.invoke(self, event_args)
+        location, status = self.get_status_strings()
+        self.screen.refresh_status_line(location, status)
 
     def get_status_strings(self):
         # This should be for version 3 only.
@@ -119,16 +127,17 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             self.memory_map.reset_dynamic_memory(dynamic_mem)
         self.pc = self.config.initial_pc
         self.call_stack.clear()
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=WindowPosition.LOWER))
+        self.screen.erase_window(WindowPosition.LOWER)
 
     def do_save(self) -> bool:
         return self.quetzal.do_save(self.pc, self.call_stack)
 
     def do_restore(self) -> bool:
-        def reset_pc(pc: int):
-            self.pc = pc
-
-        return self.quetzal.do_restore(self.call_stack, reset_pc)
+        restored_pc = self.quetzal.do_restore(self.call_stack)
+        if restored_pc is None:
+            return False
+        self.pc = restored_pc
+        return True
 
     def do_save_undo(self):
         call_stack_bytes = self.call_stack.serialize()
@@ -220,7 +229,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
                     break
                 shift -= 2
         try:
-            if self.debug:
+            if self.runtime_settings.debug_mode:
                 opname = opcode_dict[opcode_number].__name__[3:].upper()
                 with open(self.debug_file, 'a') as s:
                     s.write('{0:x}: {1}  {2}\n'.format(instruction_ptr, opname, ','.join([str(o) for o in operands])))
@@ -399,8 +408,6 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
     def do_read(self, text_buffer_addr: int, parse_buffer_addr: int, time: int = 0, routine: int = 0):
         timeout_ms = time * 100
         call_addr = self.unpack_addr(routine)
-        event_args = EventArgs()
-        self.event_manager.pre_read_input.invoke(self, event_args)
         text_buffer_size = self.read_byte(text_buffer_addr)
         if self.version <= 4:
             text_buffer_size += 1
@@ -414,13 +421,13 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
                 if buffer_char == 0:
                     break
                 text_buffer[i] = self.read_byte(text_buffer_addr + i + 2)
-        event_args.text_buffer = text_buffer
-        event_args.timeout_ms = timeout_ms
-        event_args.interrupt_routine_caller = self.do_direct_call
-        event_args.interrupt_routine_addr = call_addr
         text_addr_offset = 1 if self.version <= 4 else 2
         current_pc = self.pc
-        self.event_manager.read_input.invoke(self, event_args)
+        self.input_source.read_input(timeout_ms=timeout_ms,
+                                     text_buffer=text_buffer,
+                                     interrupt_routine_caller=self.do_direct_call,
+                                     interrupt_routine_addr=call_addr,
+                                     echo=True)
         # For version 4 or lower, write the characters from the input buffer (without the
         # terminating character) from byte 1 onwards in the text buffer, followed by a 0 byte.
         # For version 5+, write the number of typed characters in byte 1, followed by the character
@@ -443,22 +450,15 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         if terminating_char == 13:
             command = bytearray(text_buffer[:input_len - 1]).decode()
             self.parse_command(command, parse_buffer_addr)
-        self.event_manager.post_read_input.invoke(self, EventArgs(command=command, terminating_char=terminating_char))
 
     def do_read_char(self, time: int = 0, routine: int = 0):
-        self.event_manager.pre_read_input.invoke(self, EventArgs())
         text_buffer = [0]
-        event_args = EventArgs(
-            timeout_ms=time * 100,
-            interrupt_routine_caller=self.do_direct_call,
-            interrupt_routine_addr=self.unpack_addr(routine),
-            text_buffer=text_buffer,
-            echo=False
-        )
-        self.event_manager.read_input.invoke(self, event_args)
-        ch = text_buffer[0]
-        self.event_manager.post_read_input.invoke(self, EventArgs(terminating_char=ch))
-        self.do_store(ch)
+        self.input_source.read_input(timeout_ms = time * 100,
+                                     text_buffer=text_buffer,
+                                     interrupt_routine_caller=self.do_direct_call,
+                                     interrupt_routine_addr=self.unpack_addr(routine),
+                                     echo=False)
+        self.do_store(text_buffer[0])
 
     def do_tokenize(self, text_addr: int, parse_buffer: int, dictionary_addr: int = 0, flag: int = 0):
         text_length = self.read_byte(text_addr + 1)
@@ -501,39 +501,50 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
             self.write_byte(coded_buffer + i, encoded[i])
 
     def do_split_window(self, lines: int):
-        self.event_manager.split_window.invoke(self, EventArgs(lines=lines))
+        self.screen.split_window(lines)
 
     def do_set_window(self, window_id: int):
-        self.event_manager.set_window.invoke(self, EventArgs(window_id=window_id))
+        self.screen.set_window(window_id)
     
     def do_erase_window(self, window_id: int):
-        self.event_manager.erase_window.invoke(self, EventArgs(window_id=window_id))
+        self.screen.erase_window(window_id)
     
     def do_set_cursor(self, y: int, x: int):
-        self.event_manager.set_cursor.invoke(self, EventArgs(y=y, x=x))
+        # The z-machine standard is 1-indexed for cursor positions, but the interpreter's screen coordinates are 0-indexed.
+        self.screen.set_cursor(y - 1, x - 1)
 
     def do_set_text_style(self, style: int):
-        self.event_manager.set_text_style.invoke(self, EventArgs(style=style))
+        self.screen.set_text_style(style)
 
     def do_set_buffer_mode(self, mode: bool):
-        self.event_manager.set_buffer_mode.invoke(self, EventArgs(mode=mode))
+        self.screen.buffer_mode = mode
 
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
-        event_args = EventArgs(stream_id=stream_id)
-        if stream_id == 3:
-            event_args.table_addr = table_addr
-        self.event_manager.select_output_stream.invoke(self, event_args)
+        if abs(stream_id) == OutputStreamType.SCREEN:
+            if stream_id > 0:
+                self.output_manager.open_screen_stream()
+            else:
+                self.output_manager.close_screen_stream()
+        elif abs(stream_id) == OutputStreamType.TRANSCRIPT:
+            if stream_id > 0:
+                self.output_manager.open_transcript_stream()
+            else:
+                self.output_manager.close_transcript_stream()
+        elif abs(stream_id) == OutputStreamType.MEMORY:
+            if stream_id > 0:
+                self.output_manager.open_memory_stream(table_addr)
+            else:
+                self.output_manager.close_memory_stream()
+        self.event_manager.on_select_output_stream.invoke(self, EventArgs())
 
     def do_sound_effect(self, type):
-        self.event_manager.sound_effect.invoke(self, EventArgs(type=type))
+        self.screen.sound_effect(type)
 
     def do_set_color(self, foreground_color: int, background_color: int):
-        e = EventArgs(foreground_color=foreground_color, background_color=background_color)
-        return self.event_manager.set_color.invoke(self, e)
+        self.screen.set_color(background_color, foreground_color)
 
     def write_to_output_streams(self, text, newline=False):
-        event_args = EventArgs(text=text, newline=newline)
-        self.event_manager.write_to_streams.invoke(self, event_args)
+        self.output_manager.write_to_streams(text, newline)
 
     def print_from_pc(self, newline=False):
         self.pc = self.print_from_addr(self.pc, newline)
@@ -546,10 +557,12 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return addr
 
     def do_print_table(self, addr, width, height, skip):
-        table = [[0] * width for _ in range(height)]
+        table = [''] * height
         for i in range(height):
+            row = [''] * width
             for j in range(width):
-                table[i][j] = self.read_byte(addr)
+                row[j] = chr(self.read_byte(addr))
                 addr += 1
+            table[i] = str.join('', row)
             addr += skip
-        self.event_manager.print_table.invoke(self, EventArgs(table=table))
+        self.screen.print_table(table)
