@@ -1,9 +1,9 @@
 import os
 from enum import Enum
-from typing import BinaryIO, Callable, Any
-from .event import EventArgs, EventManager
+from typing import BinaryIO
 from .memory import MemoryMap
 from .constants import IFF_HEADER, IFZS_ID
+from .protocol import ITerminalAdapter
 from .stack import CallStack
 
 class IffType(Enum):
@@ -12,10 +12,10 @@ class IffType(Enum):
     CALL_STACK = 'Stks'
 
 class Quetzal:
-    def __init__(self, memory_map: MemoryMap, event_manager: EventManager):
+    def __init__(self, memory_map: MemoryMap, terminal_adapter: ITerminalAdapter):
         self.config = memory_map.config
         self.memory_map = memory_map
-        self.event_manager = event_manager
+        self.terminal_adapter = terminal_adapter
         self.game_file = self.config.game_file
         filename = os.path.basename(self.game_file)
         base_filename = os.path.splitext(filename)[0]
@@ -35,7 +35,7 @@ class Quetzal:
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(self.filepath, save_file)
         if os.path.exists(save_full_path):
-            if self.interpreter_input('Overwrite existing file? (Y is affirmative) ') != 'y':
+            if self.interpreter_prompt('Overwrite existing file? (Y is affirmative) ', True) != 'y':
                 return False
         data_len = len(IFZS_ID)
         header_data = self.config.release_number[:]
@@ -65,7 +65,9 @@ class Quetzal:
             # TODO: Logging would be nice.
             return False
 
-    def do_restore(self, call_stack: CallStack, reset_pc_callback: Callable[[int], Any]) -> bool:
+    def do_restore(self, call_stack: CallStack) -> int | None:
+        """Returns the new program counter if successful, None otherwise."""
+        pc = None
         flags2_bits = self.read_word(0x10) & 0x3
         filepath = os.path.dirname(self.game_file)
         save_file = self.prompt_save_file()
@@ -78,7 +80,7 @@ class Quetzal:
             data_len = int.from_bytes(s.read(4), "big")
             form_type = s.read(4)
             if header != IFF_HEADER or form_type != IFZS_ID:
-                self.interpreter_prompt('Invalid save file!')
+                self.write_to_screen('Invalid save file!', True)
                 return False
             bytes_read = 8
             while bytes_read < data_len:
@@ -96,23 +98,22 @@ class Quetzal:
             encoded_memory = mem_chunk.data
         except Exception as err:
             # print(f'{err}')
-            return False
+            return None
         if release_number != self.config.release_number or \
                 serial_number != self.config.serial_number or \
                 checksum != self.config.checksum:
-            self.interpreter_prompt("Invalid save file!")
-            return False
+            self.write_to_screen("Invalid save file!", True)
+            return None
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
         self.memory_map.reset_dynamic_memory(dynamic_mem)
         call_stack.deserialize(stack_chunk.data)
-        reset_pc_callback(pc)
 
         # Set the transcribe and fixed pitch bits to the previous state.
         flags2 = self.read_word(0x10)
         flags2 &= 0xfffc
         flags2 |= flags2_bits
         self.write_word(0x10, flags2)
-        return True
+        return pc
 
     # There's no need to compress the dynamic memory for the save file
     # as modern computers have plenty of storage space.
@@ -162,22 +163,23 @@ class Quetzal:
         return dynamic_mem
 
     def prompt_save_file(self):
-        self.interpreter_prompt('Enter a file name.')
-        save_file = self.interpreter_input(f'Default is "{self.save_file}": ')
+        self.write_to_screen('Enter a file name.', True)
+        save_file = self.interpreter_prompt(f'Default is "{self.save_file}": ')
         if save_file == '':
             save_file = self.save_file
         else:
             self.save_file = save_file
         return save_file
+    
+    def write_to_screen(self, text, newline=False):
+        """Print text directly to the screen."""
+        self.terminal_adapter.write_to_screen(text)
+        if newline:
+            self.terminal_adapter.write_to_screen('\n')
 
-    def interpreter_prompt(self, text):
-        self.event_manager.interpreter_prompt.invoke(self, EventArgs(text=text))
-
-    def interpreter_input(self, text):
-        event_args = EventArgs(text=text)
-        self.event_manager.interpreter_input.invoke(self, event_args)
-        return event_args.response
-
+    def interpreter_prompt(self, prompt: str, lowercase: bool = False) -> str:
+        """Prompt the user for input and return the result."""
+        return self.terminal_adapter.get_input_string(prompt, lowercase)
 
 class IffChunk:
     def __init__(self, header: IffType, data: bytes):

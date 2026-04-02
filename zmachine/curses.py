@@ -1,12 +1,10 @@
 import curses
 import atexit
-from .screen import TerminalAdapter, Window
 from .enums import TextStyle, Color
-from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 from .config import ZMachineConfig
 
 
-class CursesAdapter(TerminalAdapter):
+class CursesAdapter:
     CURSES_TEXT_STYLES = {
         TextStyle.REVERSE: curses.A_REVERSE,
         TextStyle.BOLD: curses.A_BOLD,
@@ -110,9 +108,9 @@ class CursesAdapter(TerminalAdapter):
     def erase_screen(self):
         self.main_screen.erase()
 
-    def erase_window(self, window: Window):
+    def erase_window(self, top: int, height: int):
         y_cursor, x_cursor = self.main_screen.getyx()
-        for y in range(window.y_pos, window.y_pos + window.height):
+        for y in range(top, top + height):
             self.main_screen.move(y, 0)
             self.main_screen.clrtoeol()
         self.main_screen.move(y_cursor, x_cursor)
@@ -127,15 +125,7 @@ class CursesAdapter(TerminalAdapter):
             else:
                 self.main_screen.attroff(v)
 
-    def set_color(self, window: Window, background_color: int, foreground_color: int):
-        if background_color == 0:
-            background_color = window.background_color
-        elif background_color == 1:
-            background_color = DEFAULT_BACKGROUND_COLOR
-        if foreground_color == 0:
-            foreground_color = window.foreground_color
-        elif foreground_color == 1:
-            foreground_color = DEFAULT_FOREGROUND_COLOR
+    def set_color(self, background_color: int, foreground_color: int):
         pair_number = self.color_pairs[background_color][foreground_color]
         if pair_number == 0:
             curses.init_pair(
@@ -146,8 +136,6 @@ class CursesAdapter(TerminalAdapter):
             pair_number = self.color_pair_index
             self.color_pairs[background_color][foreground_color] = pair_number
             self.color_pair_index += 1
-        window.background_color = background_color
-        window.foreground_color = foreground_color
         color_pair = curses.color_pair(pair_number)
         self.main_screen.attron(color_pair)
 
