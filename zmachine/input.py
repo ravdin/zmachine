@@ -1,15 +1,14 @@
 import re
-import os
 from abc import ABC, abstractmethod
 from typing import Callable
-from .enums import TerminalEscape, InputStreamType, Hotkey, WindowPosition
+from .enums import TerminalEscape, InputStreamType, Hotkey
 from .config import ZMachineConfig
 from .constants import ESCAPE_CHAR
-from .screen import BaseScreen, TerminalAdapter
-from .event import EventManager, EventArgs
+from .event import EventManager, EventArgs, PostReadInputEventArgs
+from .protocol import IScreen, ITerminalAdapter, IInputSource, IHotkeyHandler
 
 class KeyboardInputParser:
-    def __init__(self, terminal_adapter: TerminalAdapter):
+    def __init__(self, terminal_adapter: ITerminalAdapter):
         self.terminal_adapter = terminal_adapter
 
     def set_timeout(self, timeout_ms: int):
@@ -36,52 +35,54 @@ class KeyboardInputParser:
             self.terminal_adapter.clear_to_eol()
 
 class InputStreamManager:
-    def __init__(self, screen: BaseScreen, event_manager: EventManager, config: ZMachineConfig):
+    def __init__(self, 
+                 screen: IScreen,
+                 terminal_adapter: ITerminalAdapter, 
+                 hotkey_handler: IHotkeyHandler,
+                 event_manager: EventManager,
+                 config: ZMachineConfig
+                ):
         self.screen = screen
-        self.keyboard_input_stream = KeyboardInputStream(screen, event_manager, config)
-        self.playback_input_stream = PlaybackInputStream(screen, event_manager)
+        self.event_manager = event_manager
+        self.keyboard_input_stream = KeyboardInputStream(terminal_adapter, self, screen, hotkey_handler, config)
+        self.playback_input_stream = PlaybackInputStream(terminal_adapter, self)
         self.active_stream: InputStream = self.keyboard_input_stream
-        self.register_delegates(event_manager)
 
-    def register_delegates(self, event_manager: EventManager):
-        event_manager.read_input += self.read_input_handler
-        event_manager.select_input_stream += self.select_input_stream_handler
+    def select_playback_stream(self, commands: list[str]):
+        self.playback_input_stream.open(commands)
+        self.screen.pause_enabled = False
+        self.active_stream = self.playback_input_stream
 
-    def open_playback_stream(self, playback_file_path: str):
-        if not os.path.exists(playback_file_path):
-            return
-        with open(playback_file_path, 'r') as playback_file:
-            commands = playback_file.readlines()
+    def select_keyboard_stream(self):
+        self.screen.pause_enabled = True
+        self.active_stream = self.keyboard_input_stream
 
-    def select_input_stream_handler(self, sender, e: EventArgs):
-        input_stream_type = e.input_stream_type
-        if input_stream_type == InputStreamType.KEYBOARD:
-            self.screen.pause_enabled = True
-            self.active_stream = self.keyboard_input_stream
-        elif input_stream_type == InputStreamType.PLAYBACK:
-            commands = e.get('commands', None)
-            if commands is not None:
-                self.playback_input_stream.open(e.commands)
-                self.screen.pause_enabled = False
-                self.active_stream = self.playback_input_stream
-
-    def read_input_handler(self, sender, event_args: EventArgs):
-        timeout_ms: int = event_args.timeout_ms
-        text_buffer: list[int] = event_args.text_buffer
-        interrupt_routine_caller: Callable[[int], int] = event_args.interrupt_routine_caller
-        interrupt_routine_addr: int = event_args.interrupt_routine_addr
-        echo = event_args.get('echo', True)
+    def read_input(self,
+        timeout_ms: int,
+        text_buffer: list[int],
+        interrupt_routine_caller: Callable[[int], int],
+        interrupt_routine_addr: int,
+        echo: bool
+    ):
+        self.event_manager.pre_read_input.invoke(self, EventArgs())
         self.active_stream.read_input(timeout_ms=timeout_ms,
                                       text_buffer=text_buffer,
                                       interrupt_routine_caller=interrupt_routine_caller,
                                       interrupt_routine_addr=interrupt_routine_addr,
                                       echo=echo)
+        input_len = 1 if len(text_buffer) == 1 else text_buffer.index(0)
+        input_chars = text_buffer[:input_len]
+        terminating_char = input_chars[-1]
+        command = None if input_len <= 1 else bytearray(input_chars[:-1]).decode()
+        post_input_event_args = PostReadInputEventArgs(command=command, terminating_char=terminating_char)
+        self.event_manager.post_read_input.invoke(self, post_input_event_args)
+
 
 class InputStream(ABC):
     """Base class for input sources"""
-    def __init__(self, screen: BaseScreen, event_manager: EventManager):
-        self.screen = screen
-        self.event_manager = event_manager
+    def __init__(self, terminal_adapter: ITerminalAdapter, input_source: IInputSource):
+        self.terminal_adapter = terminal_adapter
+        self.input_source = input_source
 
     @abstractmethod
     def read_input(self,
@@ -89,14 +90,23 @@ class InputStream(ABC):
         text_buffer: list[int],
         interrupt_routine_caller: Callable[[int], int],
         interrupt_routine_addr: int,
-        echo: bool):
+        echo: bool
+    ):
         pass
         
 class KeyboardInputStream(InputStream):
-    def __init__(self, screen: BaseScreen, event_manager: EventManager, config: ZMachineConfig):
-        super().__init__(screen, event_manager)
+    def __init__(self, 
+                 terminal_adapter: ITerminalAdapter, 
+                 input_source: IInputSource, 
+                 screen: IScreen, 
+                 hotkey_handler: IHotkeyHandler, 
+                 config: ZMachineConfig
+        ):
+        super().__init__(terminal_adapter, input_source)
+        self.screen = screen
+        self.hotkey_handler = hotkey_handler
         self.config = config
-        self.keyboard_input_parser = KeyboardInputParser(screen.terminal_adapter)
+        self.keyboard_input_parser = KeyboardInputParser(terminal_adapter)
 
     def read_input(self,
         timeout_ms: int,
@@ -121,23 +131,28 @@ class KeyboardInputStream(InputStream):
                 # Otherwise, ignore the character.
                 if c in Hotkey:
                     # Recognized hotkey.
-                    # Clear the input buffer and invoke the hotkey event handler.
+                    # Clear the input buffer before processing the hotkey.
                     self.keyboard_input_parser.backspace(buffer_pos - start_buffer_pos)
                     buffer_pos = start_buffer_pos
                     text_buffer[buffer_pos] = 0
-                    hotkey_event_args = EventArgs(hotkey=c)
-                    self.event_manager.activate_hotkey.invoke(self, hotkey_event_args)
-                    # For the playback hotkey, if the hotkey event handler switched to the playback input stream,
-                    # invoke the first command from the playback stream immediately.
-                    # Otherwise, continue reading input from the keyboard.
-                    if c == Hotkey.PLAYBACK and hotkey_event_args.get('playback_open', False):
-                        read_event_args = EventArgs(timeout_ms=timeout_ms,
-                                                   text_buffer=text_buffer,
-                                                   interrupt_routine_caller=interrupt_routine_caller,
-                                                   interrupt_routine_addr=interrupt_routine_addr,
-                                                   echo=echo)
-                        self.event_manager.read_input.invoke(self, read_event_args)
-                        return
+                    if c == Hotkey.HELP:
+                        self.hotkey_handler.display_help()
+                    elif c == Hotkey.SEED:
+                        self.hotkey_handler.set_random_seed()
+                    elif c == Hotkey.PLAYBACK:
+                        if self.hotkey_handler.playback_recorded_input(self.input_source):
+                            # If opening the playback stream, read the first command immediately.
+                            # Otherwise, continue reading input from the keyboard.
+                            self.input_source.read_input(timeout_ms=timeout_ms,
+                                                         text_buffer=text_buffer,
+                                                         interrupt_routine_caller=interrupt_routine_caller,
+                                                         interrupt_routine_addr=interrupt_routine_addr,
+                                                         echo=echo)
+                            return
+                    elif c == Hotkey.RECORD:
+                        self.hotkey_handler.toggle_record_stream()
+                    elif c == Hotkey.DEBUG:
+                        self.hotkey_handler.toggle_debug_mode()
                     continue
                 if c in self.config.interrupt_zchars:
                     text_buffer[buffer_pos] = c
@@ -177,9 +192,10 @@ class KeyboardInputStream(InputStream):
             buffer_pos += 1
         self.keyboard_input_parser.set_timeout(0)
 
+
 class PlaybackInputStream(InputStream):
-    def __init__(self, screen: BaseScreen, event_manager: EventManager):
-        super().__init__(screen, event_manager)
+    def __init__(self, terminal_adapter: ITerminalAdapter, input_source: IInputSource):
+        super().__init__(terminal_adapter, input_source)
         self.commands: list[str] = []
         self.command_index = 0
 
@@ -205,26 +221,26 @@ class PlaybackInputStream(InputStream):
         elif len(text_buffer) == 1:
             matches = re.match(r'^\[(\d+)\]$', command)
             if matches is None:
-                self.screen.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
+                self.terminal_adapter.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
                 text_buffer[0] = 13
-                self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
+                self.input_source.select_keyboard_stream()
             else:
                 zscii_code = int(matches.groups()[0])
                 text_buffer[0] = zscii_code
                 if echo and 32 <= zscii_code <= 126:
-                    self.screen.write_to_screen(chr(zscii_code))
+                    self.terminal_adapter.write_to_screen(chr(zscii_code))
         else:
             # Parse format: "command text" or "command text[terminating_char]"
             matches = re.match(r'^(.+?)(?:\[(\d+)\])?$', command)
             if matches is None:
-                self.screen.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
+                self.terminal_adapter.write_to_screen(f"Invalid command in playback file: {self.command_index}: {command}\n")
                 text_buffer[buffer_pos] = 13
-                self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
+                self.input_source.select_keyboard_stream()
                 return
             groups = matches.groups()
             command_text = groups[0]
             if echo:
-                self.screen.write_to_screen(command_text.upper() + '\n')
+                self.terminal_adapter.write_to_screen(command_text.upper() + '\n')
             if len(groups) > 1 and groups[1] is not None:
                 terminating_char = int(groups[1])
                 if terminating_char == 0:
@@ -239,4 +255,4 @@ class PlaybackInputStream(InputStream):
             text_buffer[buffer_pos] = terminating_char
         self.command_index += 1
         if self.command_index == len(self.commands):
-            self.event_manager.select_input_stream.invoke(self, EventArgs(input_stream_type=InputStreamType.KEYBOARD))
+            self.input_source.select_keyboard_stream()

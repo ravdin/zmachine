@@ -128,7 +128,7 @@ class AbstractZMachineInterpreter(ABC):
         pass
 
     @abstractmethod
-    def do_print_table(self, addr, width, height, skip):
+    def do_print_table(self, addr: int, width: int, height: int, skip: int):
         pass
 
     def write_to_output_streams(self, text: str, newline: bool = False):

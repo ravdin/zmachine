@@ -4,9 +4,12 @@ from .memory import MemoryMap
 from .event import EventManager
 from .input import InputStreamManager
 from .output import OutputStreamManager
-from .hotkey import HotkeyManager
+from .hotkey import HotkeyHandler
+from .protocol import ITerminalAdapter, IScreen
+from .quetzal import Quetzal
 from .interpreter import ZMachineInterpreter
 from .config import ZMachineConfig
+from .settings import RuntimeSettings
 from .constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
 
 
@@ -15,17 +18,27 @@ class ZMachineBuilder:
         config = ZMachineConfig.from_game_file(game_file)
         event_manager = EventManager()
         memory_map = MemoryMap(config)
-        screen = self._initialize_screen(config, event_manager)
-        hotkey_manager = HotkeyManager(config, screen, event_manager)
-        self._initialize_header(memory_map, screen, config.version)
-        self.input_stream_manager = InputStreamManager(screen, event_manager, config)
-        self.output_stream_manager = OutputStreamManager(screen, memory_map, event_manager)
-        self.interpreter = ZMachineInterpreter(memory_map, config, event_manager)
+        runtime_settings = RuntimeSettings(memory_map)
+        terminal_adapter = CursesAdapter(config)
+        screen = self._initialize_screen(config.version, terminal_adapter, event_manager)
+        quetzal = Quetzal(memory_map, terminal_adapter)
+        self._initialize_header(memory_map, terminal_adapter, config.version)
+        output_stream_manager = OutputStreamManager(screen, memory_map, terminal_adapter, config, runtime_settings, event_manager)
+        hotkey_handler = HotkeyHandler(config, runtime_settings, terminal_adapter, output_stream_manager)
+        input_stream_manager = InputStreamManager(screen, terminal_adapter, hotkey_handler, event_manager, config)
+        self.interpreter = ZMachineInterpreter(
+            memory_map, 
+            config, 
+            runtime_settings, 
+            screen, 
+            input_stream_manager, 
+            output_stream_manager,
+            quetzal, 
+            event_manager
+            )
 
     @staticmethod
-    def _initialize_screen(config: ZMachineConfig, event_manager: EventManager) -> BaseScreen:
-        terminal_adapter = CursesAdapter(config)
-        version = config.version
+    def _initialize_screen(version: int, terminal_adapter: ITerminalAdapter, event_manager: EventManager) -> IScreen:
         if version == 3:
             return ScreenV3(terminal_adapter, event_manager)
         if version == 4:
@@ -36,7 +49,7 @@ class ZMachineBuilder:
     
     def _initialize_header(self,
                            memory_map: MemoryMap,
-                           screen: BaseScreen,
+                           terminal_adapter: ITerminalAdapter,
                            version: int) -> None:
         """Write runtime configuration to game memory header.
         
@@ -46,11 +59,11 @@ class ZMachineBuilder:
         """
         memory_map.write_word(0x1e, INTERPRETER_NUMBER)
         memory_map.write_word(0x32, INTERPRETER_REVISION)
-        memory_map.write_byte(0x20, screen.height)
-        memory_map.write_byte(0x21, screen.width)
+        memory_map.write_byte(0x20, terminal_adapter.height)
+        memory_map.write_byte(0x21, terminal_adapter.width)
         if version == 5:
-            memory_map.write_word(0x22, screen.width)
-            memory_map.write_word(0x24, screen.height)
+            memory_map.write_word(0x22, terminal_adapter.width)
+            memory_map.write_word(0x24, terminal_adapter.height)
             memory_map.write_byte(0x26, 1)
             memory_map.write_byte(0x27, 1)
 
