@@ -1,4 +1,4 @@
-from .error import IllegalWriteException
+from .error import IllegalWriteException, InvalidMemoryException
 from .config import ZMachineConfig
 from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
@@ -20,6 +20,10 @@ class MemoryMap:
             # Colors available.
             self.flags1_mask |= 1
         self.set_screen_flags()
+
+    @property
+    def static_memory_base_addr(self) -> int:
+        return self.config.static_memory_base_addr
 
     def __getitem__(self, item: int | slice):
         if isinstance(item, slice):
@@ -46,9 +50,13 @@ class MemoryMap:
         return packed_addr << shift
 
     def read_byte(self, addr: int) -> int:
+        if addr >= len(self._memory_map):
+            raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr]
 
     def read_word(self, addr: int) -> int:
+        if addr + 1 >= len(self._memory_map):
+            raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
     def write_byte(self, addr: int, val: int):

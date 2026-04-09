@@ -1,18 +1,18 @@
 from .enums import RoutineType
 from .constants import MAX_STACK_LENGTH
 from typing import List
+from dataclasses import dataclass, field
 
 
+@dataclass(frozen=True)
 class StackFrame:
-    def __init__(self, **kwargs):
-        self.local_vars: list[int] = []
-        self.eval_stack: EvalStack = EvalStack()
-        self.return_pc: int = 0
-        self.store_varnum: int = 0
-        self.arg_count: int = 0
-        self.routine_type: RoutineType = RoutineType.STORE
-        for attr, val in kwargs.items():
-            setattr(self, attr, val)
+    """Represents a call frame on the Z-Machine call stack."""
+    local_vars: list[int] = field(default_factory=list)
+    eval_stack: 'EvalStack' = field(default_factory=lambda: EvalStack())
+    return_pc: int = 0
+    store_varnum: int = 0
+    arg_count: int = 0
+    routine_type: int = RoutineType.STORE
 
 
 class CallStack:
@@ -39,8 +39,19 @@ class CallStack:
     def eval_stack(self) -> 'EvalStack':
         return self.current_frame.eval_stack
 
-    def push(self, **kwargs):
-        frame = StackFrame(**kwargs)
+    def push(self, 
+             return_pc: int,
+             store_varnum: int,
+             local_vars: list[int],
+             arg_count: int,
+             routine_type: int):
+        frame = StackFrame(
+            return_pc=return_pc,
+            store_varnum=store_varnum,
+            local_vars=local_vars,
+            arg_count=arg_count,
+            routine_type=routine_type
+        )
         if len(self.frames) == self.frame_ptr:
             self.frames += [frame]
         else:
