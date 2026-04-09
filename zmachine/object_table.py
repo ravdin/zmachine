@@ -54,7 +54,7 @@ class ObjectTable:
         obj_addr = self.get_obj_addr(obj_id)
         return self.read_byte(obj_addr + byte_offset) & attr_flag == attr_flag
 
-    def set_attribute_flag(self, obj_id, attr_num, value=bool):
+    def set_attribute_flag(self, obj_id: int, attr_num: int, value: bool):
         if attr_num >= self.ATTRIBUTE_FLAGS:
             raise InvalidArgumentException(f'Invalid attribute: {attr_num}')
         byte_offset = attr_num >> 3
@@ -79,46 +79,46 @@ class ObjectTable:
             result[3*i:3*i+3] = [(word >> 10) & 0x1f, (word >> 5) & 0x1f, word & 0x1f]
         return result
 
-    def get_object_parent_id(self, obj_id):
+    def get_object_parent_id(self, obj_id: int) -> int:
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             return self.read_byte(obj_addr + self.PARENT_OFFSET)
         return self.read_word(obj_addr + self.PARENT_OFFSET)
 
-    def set_object_parent_id(self, obj_id, val):
+    def set_object_parent_id(self, obj_id: int, val: int):
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             self.write_byte(obj_addr + self.PARENT_OFFSET, val)
         else:
             self.write_word(obj_addr + self.PARENT_OFFSET, val)
 
-    def get_object_sibling_id(self, obj_id):
+    def get_object_sibling_id(self, obj_id: int) -> int:
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             return self.read_byte(obj_addr + self.SIBLING_OFFSET)
         return self.read_word(obj_addr + self.SIBLING_OFFSET)
 
-    def set_object_sibling_id(self, obj_id, val):
+    def set_object_sibling_id(self, obj_id: int, val: int):
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             self.write_byte(obj_addr + self.SIBLING_OFFSET, val)
         else:
             self.write_word(obj_addr + self.SIBLING_OFFSET, val)
 
-    def get_object_child_id(self, obj_id):
+    def get_object_child_id(self, obj_id: int) -> int:
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             return self.read_byte(obj_addr + self.CHILD_OFFSET)
         return self.read_word(obj_addr + self.CHILD_OFFSET)
 
-    def set_object_child_id(self, obj_id, val):
+    def set_object_child_id(self, obj_id: int, val: int):
         obj_addr = self.get_obj_addr(obj_id)
         if self.version <= 3:
             self.write_byte(obj_addr + self.CHILD_OFFSET, val)
         else:
             self.write_word(obj_addr + self.CHILD_OFFSET, val)
 
-    def orphan_object(self, obj_id):
+    def orphan_object(self, obj_id: int):
         parent_id = self.get_object_parent_id(obj_id)
         if parent_id == 0:
             return
@@ -136,19 +136,19 @@ class ObjectTable:
         self.set_object_parent_id(obj_id, 0)
         self.set_object_sibling_id(obj_id, 0)
 
-    def insert_object(self, obj_id, parent_id):
+    def insert_object(self, obj_id: int, parent_id: int):
         self.orphan_object(obj_id)
         sibling_id = self.get_object_child_id(parent_id)
         self.set_object_parent_id(obj_id, parent_id)
         self.set_object_sibling_id(obj_id, sibling_id)
         self.set_object_child_id(parent_id, obj_id)
 
-    def get_default_property_data(self, prop_id):
+    def get_default_property_data(self, prop_id: int) -> int:
         if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
             raise InvalidArgumentException(f"property id: {prop_id}")
         return self.read_word(self.OBJECT_TABLE + (prop_id - 1) * 2)
 
-    def get_property_num(self, prop_addr):
+    def get_property_num(self, prop_addr: int) -> int:
         size_byte = self.read_byte(prop_addr - 1)
         if self.version <= 3:
             return size_byte & 0x1f
@@ -156,7 +156,7 @@ class ObjectTable:
             return self.read_byte(prop_addr - 2) & 0x3f
         return size_byte & 0x3f
 
-    def get_property_data_len(self, prop_addr):
+    def get_property_data_len(self, prop_addr: int) -> int:
         size_byte = self.read_byte(prop_addr - 1)
         if self.version <= 3:
             return (size_byte >> 5) + 1
@@ -167,7 +167,7 @@ class ObjectTable:
             return size
         return (size_byte >> 6) + 1
 
-    def get_prop_data_addr(self, prop_header_addr):
+    def get_prop_data_addr(self, prop_header_addr: int) -> int | None:
         size_byte = self.read_byte(prop_header_addr)
         if size_byte == 0:
             return None
@@ -175,18 +175,18 @@ class ObjectTable:
             return prop_header_addr + 1
         return prop_header_addr + 2
 
-    def get_first_property_addr(self, obj_id):
+    def get_first_property_addr(self, obj_id: int) -> int | None:
         obj_addr = self.get_obj_addr(obj_id)
         prop_table_addr = self.byte_addr(obj_addr + self.OBJECT_BYTES - 2)
         text_len = self.read_byte(prop_table_addr)
         prop_header_addr = prop_table_addr + 2 * text_len + 1
         return self.get_prop_data_addr(prop_header_addr)
 
-    def get_next_property_addr(self, prop_addr):
+    def get_next_property_addr(self, prop_addr: int) -> int | None:
         next_prop_addr = prop_addr + self.get_property_data_len(prop_addr)
         return self.get_prop_data_addr(next_prop_addr)
 
-    def get_next_property_num(self, obj_id, prop_id):
+    def get_next_property_num(self, obj_id: int, prop_id: int) -> int:
         if prop_id == 0:
             prop_addr = self.get_first_property_addr(obj_id)
         else:
@@ -194,11 +194,11 @@ class ObjectTable:
             if prop_addr is None:
                 raise InvalidArgumentException(f'Object {obj_id} does not have property {prop_id}')
             prop_addr = self.get_next_property_addr(prop_addr)
-            if prop_addr is None:
-                return 0
+        if prop_addr is None:
+            return 0
         return self.get_property_num(prop_addr)
 
-    def get_property_addr(self, obj_id, prop_id):
+    def get_property_addr(self, obj_id: int, prop_id: int) -> int | None:
         if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
             raise InvalidArgumentException(f"Invalid property id: {prop_id}")
         prop_addr = self.get_first_property_addr(obj_id)
@@ -211,7 +211,7 @@ class ObjectTable:
             prop_addr = self.get_next_property_addr(prop_addr)
         return None
 
-    def get_property_data(self, obj_id, prop_id):
+    def get_property_data(self, obj_id: int, prop_id: int) -> int:
         prop_addr = self.get_property_addr(obj_id, prop_id)
         if prop_addr is None:
             return self.get_default_property_data(prop_id)
@@ -222,7 +222,7 @@ class ObjectTable:
             return self.read_word(prop_addr)
         raise InvalidObjectStateException("Invalid size for reading property data")
 
-    def set_property_data(self, obj_id, prop_id, val):
+    def set_property_data(self, obj_id: int, prop_id: int, val: int):
         prop_addr = self.get_property_addr(obj_id, prop_id)
         if prop_addr is None:
             raise InvalidObjectStateException(f"Property {prop_id} does not exist in object {obj_id}")

@@ -18,7 +18,7 @@ class ZSCIIException(ZMachineException):
 
 class IllegalWriteException(ZMachineException):
     def __init__(self, addr: int):
-        super().__init__(f"Illegal write to static memory: {addr:x}")
+        super().__init__(f"Illegal write to static memory: 0x{addr:x}")
 
 
 class InvalidMemoryException(ZMachineException):

@@ -1,5 +1,200 @@
 from typing import Protocol, Callable, runtime_checkable
-from .enums import WindowPosition, InputStreamType
+from .enums import WindowPosition, RoutineType
+
+@runtime_checkable
+class IObjectTable(Protocol):
+    """Object table interface that all object table implementations must support."""
+    def get_attribute_flag(self, obj_id: int, attr_num: int) -> bool:
+        """Return the value of the specified attribute for the given object number."""
+        ...
+
+    def set_attribute_flag(self, obj_id: int, attr_num: int, value: bool):
+        """Set the value of the specified attribute for the given object number."""
+        ...
+    
+    def insert_object(self, obj_id: int, parent_id: int):
+        """Insert the object with the given object number as a child of the specified parent object."""
+        ...
+
+    def get_property_data(self, obj_id: int, prop_id: int) -> int:
+        """Return the value of the specified property for the given object number."""
+        ...
+
+    def set_property_data(self, obj_id: int, prop_id: int, value: int):
+        """Set the value of the specified property for the given object number."""
+        ...
+
+    def get_property_addr(self, obj_id: int, prop_id: int) -> int | None:
+        """Return the address of the specified property for the given object number, or None if the property does not exist."""
+        ...
+
+    def get_next_property_num(self, obj_id: int, prop_id: int) -> int:
+        """Return the property number of the next property after the specified property for the given object number, or 0 if there are no more properties."""
+        ...
+
+    def get_property_data_len(self, prop_addr: int) -> int:
+        """Return the length in bytes of the property data at the given property address."""
+        ...
+
+    def get_object_parent_id(self, obj_id: int) -> int:
+        """Return the object number of the parent of the given object number."""
+        ...
+
+    def get_object_sibling_id(self, obj_id: int) -> int:
+        """Return the object number of the sibling of the given object number."""
+        ...
+
+    def get_object_child_id(self, obj_id: int) -> int:
+        """Return the object number of the first child of the given object number."""
+        ...
+
+    def orphan_object(self, obj_id: int):
+        """Remove the object with the given object number from its current parent and siblings. Its children, if any, are unaffected."""
+        ...
+
+    def get_object_text_zchars(self, obj_id: int) -> list[int]:
+        """Return the text of the given object number as a list of Z-characters."""
+        ...
+
+@runtime_checkable
+class IZMachineInterpreter(Protocol):
+    """
+    Interpreter interface to be referenced by the opcodes.
+    """
+
+    @property
+    def version(self) -> int:
+        ...
+
+    @property
+    def object_table(self) -> IObjectTable:
+        ...
+
+    def do_branch(self, is_truthy: int):
+        ...
+
+    def do_store(self, value: int):
+        ...
+
+    def read_byte(self, addr: int) -> int:
+        ...
+
+    def write_byte(self, addr: int, value: int):
+        pass
+
+    def read_word(self, addr: int) -> int:
+        ...
+
+    def write_word(self, addr: int, value: int):
+        ...
+
+    def read_var(self, varnum: int) -> int:
+        ...
+
+    def write_var(self, varnum: int, value: int):
+        ...
+
+    def unpack_addr(self, packed_addr: int) -> int:
+        ...
+
+    def do_routine(self, call_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
+        ...
+
+    def do_return(self, retval: int):
+        ...
+
+    def get_arg_count(self) -> int:
+        ...
+
+    def do_jump(self, offset: int):
+        ...
+
+    def do_save(self) -> bool:
+        ...
+
+    def do_restore(self) -> bool:
+        ...
+
+    def do_save_undo(self):
+        ...
+
+    def do_restore_undo(self):
+        ...
+
+    def do_restart(self):
+        ...
+
+    def do_verify(self) -> bool:
+        ...
+
+    def do_quit(self):
+        ...
+
+    def do_show_status(self):
+        ...
+
+    def stack_push(self, value):
+        ...
+
+    def stack_pop(self) -> int:
+        ...
+
+    def stack_peek(self) -> int:
+        ...
+
+    def get_object_text(self, obj_id: int) -> str:
+        ...
+
+    def print_from_pc(self, newline: bool = False):
+        ...
+
+    def print_from_addr(self, addr: int, newline: bool = False):
+        ...
+
+    def do_print_table(self, addr: int, width: int, height: int, skip: int):
+        ...
+
+    def write_to_output_streams(self, text: str, newline: bool = False):
+        ...
+
+    def do_read(self, text_buffer_addr: int, parse_buffer_addr: int, time: int = 0, routine: int = 0):
+        ...
+
+    def do_read_char(self, time: int = 0, routine: int = 0):
+        ...
+
+    def do_tokenize(self, text_addr: int, parse_buffer: int, dictionary_addr: int = 0, flag: int = 0):
+        ...
+
+    def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
+        ...
+
+    def do_split_window(self, lines: int):
+        ...
+
+    def do_set_window(self, window_id: int):
+        ...
+
+    def do_erase_window(self, window_id: int):
+        ...
+
+    def do_set_cursor(self, y: int, x: int):
+        ...
+
+    def do_set_text_style(self, style: int):
+        ...
+
+    def do_set_buffer_mode(self, mode: bool):
+        ...
+
+    def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+        ...
+
+    def do_sound_effect(self, type: int):
+        ...
+
+    def do_set_color(self, foreground_color: int, background_color: int):
+        ...
 
 @runtime_checkable
 class IScreen(Protocol):

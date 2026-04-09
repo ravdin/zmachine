@@ -1,9 +1,12 @@
 __pycache__
+htmlcov
+.coverage
 .ipynb_checkpoints
 .venv
 *.sav
 *.qzl
 *.txt
+!requirements.txt
 *.rec
 debug.txt
 .vscode

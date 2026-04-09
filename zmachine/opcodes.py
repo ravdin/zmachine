@@ -2,19 +2,19 @@ import random
 import time
 from typing import Callable, Dict, Any
 from functools import wraps
-from .abstract_interpreter import AbstractZMachineInterpreter
+from .protocol import IZMachineInterpreter
 from .enums import RoutineType
 from .error import *
 
 
-def get_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any]]:
+def get_opcodes(version: int) -> Dict[int, Callable[[IZMachineInterpreter, *tuple[int, ...]], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_all_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-def get_extended_opcodes(version: int) -> Dict[int, Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any]]:
+def get_extended_opcodes(version: int) -> Dict[int, Callable[[IZMachineInterpreter, *tuple[int, ...]], Any]]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_extended_opcodes())
@@ -29,7 +29,7 @@ def signed_operands(op):
     return sign_and_execute
 
 
-def sign_uint16(num):
+def sign_uint16(num: int) -> int:
     if num >= 0x8000:
         num = -(~num & 0xffff) - 1
     return num
@@ -37,7 +37,7 @@ def sign_uint16(num):
 
 class Opcode:
     def __init__(self,
-                 op: Callable[[AbstractZMachineInterpreter, *tuple[int, ...]], Any],
+                 op: Callable[[IZMachineInterpreter, *tuple[int, ...]], Any],
                  opcode: int,
                  min_version: int = 1,
                  max_version: int = 6):
@@ -153,25 +153,25 @@ class Opcode:
         ]
 
 
-def op_je(zm, *operands):
+def op_je(zm: IZMachineInterpreter, *operands: int):
     a = operands[0]
     zm.do_branch(any(a == b for b in operands[1:]))
 
 
 @signed_operands
-def op_jl(zm, *operands):
+def op_jl(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_branch(a < b)
 
 
 @signed_operands
-def op_jg(zm, *operands):
+def op_jg(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_branch(a > b)
 
 
 @signed_operands
-def op_dec_chk(zm, *operands):
+def op_dec_chk(zm: IZMachineInterpreter, *operands: int):
     varnum, value = operands
     ref_val = sign_uint16(zm.read_var(varnum)) - 1
     zm.write_var(varnum, ref_val)
@@ -179,35 +179,35 @@ def op_dec_chk(zm, *operands):
 
 
 @signed_operands
-def op_inc_chk(zm, *operands):
+def op_inc_chk(zm: IZMachineInterpreter, *operands: int):
     varnum, value = operands
     ref_val = sign_uint16(zm.read_var(varnum)) + 1
     zm.write_var(varnum, ref_val)
     zm.do_branch(ref_val > value)
 
 
-def op_jin(zm, *operands):
+def op_jin(zm: IZMachineInterpreter, *operands: int):
     obj_id, parent_id = operands
     obj_parent_id = zm.object_table.get_object_parent_id(obj_id)
     zm.do_branch(obj_parent_id == parent_id)
 
 
-def op_test(zm, *operands):
+def op_test(zm: IZMachineInterpreter, *operands: int):
     bitmap, flags = operands
     zm.do_branch(bitmap & flags == flags)
 
 
-def op_or(zm, *operands):
+def op_or(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_store(a | b)
 
 
-def op_and(zm, *operands):
+def op_and(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_store(a & b)
 
 
-def op_test_attr(zm, *operands):
+def op_test_attr(zm: IZMachineInterpreter, *operands: int):
     obj_id, attr_num = operands
     result = False
     if obj_id != 0:
@@ -220,17 +220,17 @@ def op_test_attr(zm, *operands):
     zm.do_branch(result)
 
 
-def op_set_attr(zm, *operands):
+def op_set_attr(zm: IZMachineInterpreter, *operands: int):
     obj_id, attr_num = operands
     zm.object_table.set_attribute_flag(obj_id, attr_num, True)
 
 
-def op_clear_attr(zm, *operands):
+def op_clear_attr(zm: IZMachineInterpreter, *operands: int):
     obj_id, attr_num = operands
     zm.object_table.set_attribute_flag(obj_id, attr_num, False)
 
 
-def op_store(zm, *operands):
+def op_store(zm: IZMachineInterpreter, *operands: int):
     varnum, value = operands
     if varnum == 0:
         zm.stack_pop()
@@ -239,30 +239,30 @@ def op_store(zm, *operands):
         zm.write_var(varnum, value)
 
 
-def op_insert_obj(zm, *operands):
+def op_insert_obj(zm: IZMachineInterpreter, *operands: int):
     obj_id, parent_id = operands
     zm.object_table.insert_object(obj_id, parent_id)
 
 
-def op_loadw(zm, *operands):
+def op_loadw(zm: IZMachineInterpreter, *operands: int):
     ptr, word_index = operands
     result = zm.read_word(ptr + 2 * word_index)
     zm.do_store(result)
 
 
-def op_loadb(zm, *operands):
+def op_loadb(zm: IZMachineInterpreter, *operands: int):
     ptr, byte_index = operands
     result = zm.read_byte(ptr + byte_index)
     zm.do_store(result)
 
 
-def op_get_prop(zm, *operands):
+def op_get_prop(zm: IZMachineInterpreter, *operands: int):
     obj_id, prop_id = operands
     result = zm.object_table.get_property_data(obj_id, prop_id)
     zm.do_store(result)
 
 
-def op_get_prop_addr(zm, *operands):
+def op_get_prop_addr(zm: IZMachineInterpreter, *operands: int):
     obj_id, prop_id = operands
     prop_addr = zm.object_table.get_property_addr(obj_id, prop_id)
     if prop_addr is None:
@@ -270,41 +270,41 @@ def op_get_prop_addr(zm, *operands):
     zm.do_store(prop_addr)
 
 
-def op_get_next_prop(zm, *operands):
+def op_get_next_prop(zm: IZMachineInterpreter, *operands: int):
     obj_id, prop_id = operands
     result = zm.object_table.get_next_property_num(obj_id, prop_id)
     zm.do_store(result)
 
 
 @signed_operands
-def op_add(zm, *operands):
+def op_add(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_store(a + b)
 
 
 @signed_operands
-def op_sub(zm, *operands):
+def op_sub(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_store(a - b)
 
 
 @signed_operands
-def op_mul(zm, *operands):
+def op_mul(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     zm.do_store(a * b)
 
 
 @signed_operands
-def op_div(zm, *operands):
+def op_div(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     result = a // b
-    if result < 0:
+    if result < 0 and a % b != 0:
         result += 1
     zm.do_store(result)
 
 
 @signed_operands
-def op_mod(zm, *operands):
+def op_mod(zm: IZMachineInterpreter, *operands: int):
     a, b = operands
     result = a % b
     # Python's modulo works differently from the C compiler for negative numbers.
@@ -314,22 +314,22 @@ def op_mod(zm, *operands):
     zm.do_store(result)
 
 
-def op_call_2s(zm, *operands):
+def op_call_2s(zm: IZMachineInterpreter, *operands: int):
     op_call(zm, *operands)
 
 
-def op_jz(zm, *operands):
+def op_jz(zm: IZMachineInterpreter, *operands: int):
     zm.do_branch(operands[0] == 0)
 
 
-def op_get_sibling(zm, *operands):
+def op_get_sibling(zm: IZMachineInterpreter, *operands: int):
     obj_id = operands[0]
     sibling_id = zm.object_table.get_object_sibling_id(obj_id)
     zm.do_store(sibling_id)
     zm.do_branch(sibling_id)
 
 
-def op_get_child(zm, *operands):
+def op_get_child(zm: IZMachineInterpreter, *operands: int):
     obj_id = operands[0]
     child_id = 0
     if obj_id != 0:
@@ -338,13 +338,13 @@ def op_get_child(zm, *operands):
     zm.do_branch(child_id)
 
 
-def op_get_parent(zm, *operands):
+def op_get_parent(zm: IZMachineInterpreter, *operands: int):
     obj_id = operands[0]
     parent_id = zm.object_table.get_object_parent_id(obj_id)
     zm.do_store(parent_id)
 
 
-def op_get_prop_len(zm, *operands):
+def op_get_prop_len(zm: IZMachineInterpreter, *operands: int):
     prop_addr = operands[0]
     result = 0
     if prop_addr != 0:
@@ -352,52 +352,52 @@ def op_get_prop_len(zm, *operands):
     zm.do_store(result)
 
 
-def op_inc(zm, *operands):
+def op_inc(zm: IZMachineInterpreter, *operands: int):
     varnum = operands[0]
     ref_val = sign_uint16(zm.read_var(varnum)) + 1
     zm.write_var(varnum, ref_val)
 
 
-def op_dec(zm, *operands):
+def op_dec(zm: IZMachineInterpreter, *operands: int):
     varnum = operands[0]
     ref_val = sign_uint16(zm.read_var(varnum)) - 1
     zm.write_var(varnum, ref_val)
 
 
-def op_print_addr(zm, *operands):
+def op_print_addr(zm: IZMachineInterpreter, *operands: int):
     ptr = operands[0]
     zm.print_from_addr(ptr)
 
 
-def op_call_1s(zm, *operands):
+def op_call_1s(zm: IZMachineInterpreter, *operands: int):
     op_call(zm, *operands)
 
 
-def op_print_obj(zm, *operands):
+def op_print_obj(zm: IZMachineInterpreter, *operands: int):
     obj_id = operands[0]
     obj_text = zm.get_object_text(obj_id)
     zm.write_to_output_streams(obj_text)
 
 
-def op_ret(zm, *operands):
+def op_ret(zm: IZMachineInterpreter, *operands: int):
     zm.do_return(operands[0])
 
 
-def op_remove_obj(zm, *operands):
+def op_remove_obj(zm: IZMachineInterpreter, *operands: int):
     zm.object_table.orphan_object(operands[0])
 
 
 @signed_operands
-def op_jump(zm, *operands):
+def op_jump(zm: IZMachineInterpreter, *operands: int):
     zm.do_jump(operands[0])
 
 
-def op_print_paddr(zm, *operands):
+def op_print_paddr(zm: IZMachineInterpreter, *operands: int):
     addr = zm.unpack_addr(operands[0])
     zm.print_from_addr(addr)
 
 
-def op_load(zm, *operands):
+def op_load(zm: IZMachineInterpreter, *operands: int):
     varnum = operands[0]
     if varnum == 0:
         ref_val = zm.stack_peek()
@@ -406,37 +406,37 @@ def op_load(zm, *operands):
     zm.do_store(ref_val)
 
 
-def op_not(zm, *operands):
+def op_not(zm: IZMachineInterpreter, *operands: int):
     val = (~operands[0]) & 0xffff
     zm.do_store(val)
 
 
-def op_call_1n(zm, *operands):
+def op_call_1n(zm: IZMachineInterpreter, *operands: int):
     op_call_vn(zm, *operands)
 
 
-def op_rtrue(zm, *operands):
+def op_rtrue(zm: IZMachineInterpreter, *operands: int):
     zm.do_return(1)
 
 
-def op_rfalse(zm, *operands):
+def op_rfalse(zm: IZMachineInterpreter, *operands: int):
     zm.do_return(0)
 
 
-def op_print(zm, *operands):
+def op_print(zm: IZMachineInterpreter, *operands: int):
     zm.print_from_pc()
 
 
-def op_print_ret(zm, *operands):
+def op_print_ret(zm: IZMachineInterpreter, *operands: int):
     zm.print_from_pc(True)
     zm.do_return(1)
 
 
-def op_nop(zm, *operands):
+def op_nop(zm: IZMachineInterpreter, *operands: int):
     return
 
 
-def op_save(zm, *operands):
+def op_save(zm: IZMachineInterpreter, *operands: int):
     success = zm.do_save()
     if zm.version <= 3:
         zm.do_branch(success)
@@ -444,7 +444,7 @@ def op_save(zm, *operands):
         zm.do_store(1 if success else 0)
 
 
-def op_restore(zm, *operands):
+def op_restore(zm: IZMachineInterpreter, *operands: int):
     success = zm.do_restore()
     if zm.version <= 3:
         # Technically, op_restore doesn't branch.
@@ -455,42 +455,42 @@ def op_restore(zm, *operands):
         zm.do_store(2 if success else 0)
 
 
-def op_restart(zm, *operands):
+def op_restart(zm: IZMachineInterpreter, *operands: int):
     zm.do_restart()
 
 
-def op_ret_popped(zm, *operands):
+def op_ret_popped(zm: IZMachineInterpreter, *operands: int):
     retval = zm.stack_pop()
     zm.do_return(retval)
 
 
-def op_pop(zm, *operands):
+def op_pop(zm: IZMachineInterpreter, *operands: int):
     zm.stack_pop()
 
 
-def op_quit(zm, *operands):
+def op_quit(zm: IZMachineInterpreter, *operands: int):
     zm.do_quit()
 
 
-def op_new_line(zm, *operands):
+def op_new_line(zm: IZMachineInterpreter, *operands: int):
     zm.write_to_output_streams('', True)
 
 
-def op_show_status(zm, *operands):
+def op_show_status(zm: IZMachineInterpreter, *operands: int):
     zm.do_show_status()
 
 
-def op_verify(zm, *operands):
+def op_verify(zm: IZMachineInterpreter, *operands: int):
     zm.do_branch(zm.do_verify())
 
 
-def op_piracy(zm, *operands):
+def op_piracy(zm: IZMachineInterpreter, *operands: int):
     # Branch if the interpreter believes the game bytes to be genuine.
     # This interpreter is unconditionally gullible.
     zm.do_branch(True)
 
 
-def op_call(zm, *operands):
+def op_call(zm: IZMachineInterpreter, *operands: int):
     if len(operands) == 0 or operands[0] == 0:
         # Legal state, return 0
         zm.do_store(0)
@@ -499,30 +499,30 @@ def op_call(zm, *operands):
     zm.do_routine(call_addr, args)
 
 
-def op_call_vs(zm, *operands):
+def op_call_vs(zm: IZMachineInterpreter, *operands: int):
     op_call(zm, *operands)
 
 
-def op_storew(zm, *operands):
+def op_storew(zm: IZMachineInterpreter, *operands: int):
     ptr, word_index, value = operands
     zm.write_word(ptr + 2 * word_index, value)
 
 
-def op_storeb(zm, *operands):
+def op_storeb(zm: IZMachineInterpreter, *operands: int):
     ptr, byte_index, value = operands
     zm.write_byte(ptr + byte_index, value)
 
 
-def op_put_prop(zm, *operands):
+def op_put_prop(zm: IZMachineInterpreter, *operands: int):
     obj_id, prop_id, value = operands
     zm.object_table.set_property_data(obj_id, prop_id, value)
 
 
-def op_read(zm, *operands):
+def op_read(zm: IZMachineInterpreter, *operands: int):
     zm.do_read(*operands)
 
 
-def op_print_char(zm, *operands):
+def op_print_char(zm: IZMachineInterpreter, *operands: int):
     zscii_code = operands[0]
     if zscii_code == 0:
         return
@@ -538,12 +538,12 @@ def op_print_char(zm, *operands):
 
 
 @signed_operands
-def op_print_num(zm, *operands):
+def op_print_num(zm: IZMachineInterpreter, *operands: int):
     zm.write_to_output_streams(str(operands[0]))
 
 
 @signed_operands
-def op_random(zm, *operands):
+def op_random(zm: IZMachineInterpreter, *operands: int):
     r = operands[0]
     result = 0
     if r > 0:
@@ -555,11 +555,11 @@ def op_random(zm, *operands):
     zm.do_store(result)
 
 
-def op_push(zm, *operands):
+def op_push(zm: IZMachineInterpreter, *operands: int):
     zm.stack_push(operands[0])
 
 
-def op_pull(zm, *operands):
+def op_pull(zm: IZMachineInterpreter, *operands: int):
     varnum = operands[0]
     value = zm.stack_pop()
     if varnum == 0:
@@ -569,34 +569,34 @@ def op_pull(zm, *operands):
         zm.write_var(varnum, value)
 
 
-def op_split_window(zm, *operands):
+def op_split_window(zm: IZMachineInterpreter, *operands: int):
     zm.do_split_window(operands[0])
 
 
-def op_set_window(zm, *operands):
+def op_set_window(zm: IZMachineInterpreter, *operands: int):
     zm.do_set_window(operands[0])
 
 
 @signed_operands
-def op_erase_window(zm, *operands):
+def op_erase_window(zm: IZMachineInterpreter, *operands: int):
     zm.do_erase_window(operands[0])
 
 
-def op_set_cursor(zm, *operands):
+def op_set_cursor(zm: IZMachineInterpreter, *operands: int):
     y, x = operands
     zm.do_set_cursor(y, x)
 
 
-def op_set_text_style(zm, *operands):
+def op_set_text_style(zm: IZMachineInterpreter, *operands: int):
     zm.do_set_text_style(operands[0])
 
 
-def op_buffer_mode(zm, *operands):
+def op_buffer_mode(zm: IZMachineInterpreter, *operands: int):
     mode: bool = operands[0] != 0
     zm.do_set_buffer_mode(mode)
 
 
-def op_output_stream(zm, *operands):
+def op_output_stream(zm: IZMachineInterpreter, *operands: int):
     stream_id = sign_uint16(operands[0])
     table_addr = 0
     if stream_id == 3 and len(operands) > 1:
@@ -604,15 +604,15 @@ def op_output_stream(zm, *operands):
     zm.do_select_output_stream(stream_id, table_addr)
 
 
-def op_sound_effect(zm, *operands):
+def op_sound_effect(zm: IZMachineInterpreter, *operands: int):
     zm.do_sound_effect(operands[0])
 
 
-def op_read_char(zm, *operands):
+def op_read_char(zm: IZMachineInterpreter, *operands: int):
     zm.do_read_char(*operands[1:])
 
 
-def op_scan_table(zm, *operands):
+def op_scan_table(zm: IZMachineInterpreter, *operands: int):
     word, addr, length = operands[:3]
     form = 0x82 if len(operands) < 4 else operands[3]
     reader = zm.read_word if form >= 0x80 else zm.read_byte
@@ -628,35 +628,35 @@ def op_scan_table(zm, *operands):
     zm.do_branch(result)
 
 
-def op_call_vn(zm, *operands):
+def op_call_vn(zm: IZMachineInterpreter, *operands: int):
     if len(operands) == 0 or operands[0] == 0:
         return
     call_addr, args = zm.unpack_addr(operands[0]), operands[1:]
     zm.do_routine(call_addr, args, RoutineType.DISCARD)
 
 
-def op_set_color(zm, *operands):
+def op_set_color(zm: IZMachineInterpreter, *operands: int):
     zm.do_set_color(foreground_color=operands[0], background_color=operands[1])
 
 
-def op_call_vn2(zm, *operands):
+def op_call_vn2(zm: IZMachineInterpreter, *operands: int):
     op_call_vn(zm, *operands)
 
 
-def op_tokenize(zm, *operands):
+def op_tokenize(zm: IZMachineInterpreter, *operands: int):
     zm.do_tokenize(*operands)
 
 
-def op_encode_text(zm, *operands):
+def op_encode_text(zm: IZMachineInterpreter, *operands: int):
     zm.do_encode_text(*operands)
 
 
-def op_check_arg_count(zm, *operands):
+def op_check_arg_count(zm: IZMachineInterpreter, *operands: int):
     argument_number = operands[0]
     zm.do_branch(argument_number <= zm.get_arg_count())
 
 
-def op_copy_table(zm, *operands):
+def op_copy_table(zm: IZMachineInterpreter, *operands: int):
     first, second, size = operands
     size = sign_uint16(size)
     if second == 0:
@@ -672,7 +672,7 @@ def op_copy_table(zm, *operands):
             zm.write_byte(second + i, val)
 
 
-def op_print_table(zm, *operands):
+def op_print_table(zm: IZMachineInterpreter, *operands: int):
     addr, width = operands[0:2]
     height = 1 if len(operands) < 3 else operands[2]
     skip = 0 if len(operands) < 4 else operands[3]
@@ -681,7 +681,7 @@ def op_print_table(zm, *operands):
 
 # Extended opcodes
 
-def op_log_shift(zm, *operands):
+def op_log_shift(zm: IZMachineInterpreter, *operands: int):
     number, places = operands
     places = sign_uint16(places)
     if places > 0:
@@ -692,7 +692,7 @@ def op_log_shift(zm, *operands):
 
 
 @signed_operands
-def op_art_shift(zm, *operands):
+def op_art_shift(zm: IZMachineInterpreter, *operands: int):
     number, places = operands
     if places > 0:
         number <<= places
@@ -701,14 +701,14 @@ def op_art_shift(zm, *operands):
     zm.do_store(number)
 
 
-def op_set_font(zm, *operands):
+def op_set_font(zm: IZMachineInterpreter, *operands: int):
     # Curses doesn't have different fonts.
     zm.do_store(0)
 
 
-def op_save_undo(zm, *operands):
+def op_save_undo(zm: IZMachineInterpreter, *operands: int):
     zm.do_save_undo()
 
 
-def op_restore_undo(zm, *operands):
+def op_restore_undo(zm: IZMachineInterpreter, *operands: int):
     zm.do_restore_undo()

@@ -1,13 +1,12 @@
 import os
 from . import opcodes
-from .abstract_interpreter import AbstractZMachineInterpreter
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .constants import INPUT_BUFFER_LENGTH
 from .memory import MemoryMap
 from .object_table import ObjectTable
 from .event import EventArgs, DebugModeEventArgs, EventManager
-from .protocol import IScreen, IInputSource, IOutputStreamManager
+from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager
 from .text import TextUtils
 from .quetzal import Quetzal
 from .undo import UndoStack
@@ -16,7 +15,7 @@ from .stack import CallStack, EvalStack
 from .error import *
 
 
-class ZMachineInterpreter(AbstractZMachineInterpreter):
+class ZMachineInterpreter:
     def __init__(self, 
                  memory_map: MemoryMap,
                  config: ZMachineConfig, 
@@ -55,7 +54,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         return self.config.version
 
     @property
-    def object_table(self) -> ObjectTable:
+    def object_table(self) -> IObjectTable:
         return self._object_table
 
     def do_run(self):
@@ -380,7 +379,7 @@ class ZMachineInterpreter(AbstractZMachineInterpreter):
         store = self.read_from_pc()
         self.write_var(store, value)
 
-    def do_branch(self, is_truthy):
+    def do_branch(self, is_truthy: int):
         is_true = is_truthy not in (0, False)
         branch = self.read_from_pc()
         jump_cond = branch & 0x80 == 0x80

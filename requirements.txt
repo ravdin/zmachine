@@ -1,0 +1,11 @@
+# Test dependencies for Z-Machine interpreter
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.1
+pytest-xdist>=3.3.1  # For parallel test execution
+ 
+# Optional: Property-based testing
+# hypothesis>=6.82.0
+ 
+# Optional: Better test output
+# pytest-sugar>=0.9.7
