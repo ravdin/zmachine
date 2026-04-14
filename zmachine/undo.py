@@ -1,10 +1,10 @@
 class UndoFrame:
-    def __init__(self, dynamic_memory: bytearray, call_stack_bytes: bytearray, pc: int):
+    def __init__(self, dynamic_memory: bytes, call_stack_bytes: bytes, pc: int):
         self.dynamic_memory = dynamic_memory
         self.call_stack_bytes = call_stack_bytes
         self.pc = pc
 
-    def serialize(self):
+    def serialize(self) -> bytes:
         result = bytearray()
         result.extend(len(self.dynamic_memory).to_bytes(4, "big"))
         result.extend(self.dynamic_memory)
@@ -14,7 +14,7 @@ class UndoFrame:
         return result
 
     @classmethod
-    def deserialize(cls, data: bytearray) -> "UndoFrame":
+    def deserialize(cls, data: bytes) -> "UndoFrame":
         dynamic_memory_len = int.from_bytes(data[:4], "big")
         data_ptr = dynamic_memory_len + 4
         dynamic_memory = data[4:data_ptr]
@@ -30,10 +30,10 @@ class UndoStack:
     def __init__(self):
         # Assumption there won't be more than this many undos.
         self.STACK_SIZE = 16
-        self.stack: list[bytearray] = [bytearray()] * self.STACK_SIZE
+        self.stack: list[bytes] = [bytearray()] * self.STACK_SIZE
         self.sp: int = 0
 
-    def push(self, dynamic_memory: bytearray, call_stack_bytes: bytearray, pc: int):
+    def push(self, dynamic_memory: bytes, call_stack_bytes: bytes, pc: int):
         frame = UndoFrame(dynamic_memory, call_stack_bytes, pc)
         if self.sp == self.STACK_SIZE:
             self.stack[:self.STACK_SIZE-1] = self.stack[1:]

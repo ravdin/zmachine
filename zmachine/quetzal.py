@@ -1,15 +1,17 @@
 import os
 from enum import Enum
-from typing import BinaryIO
+from typing import BinaryIO, Protocol, runtime_checkable
+
+from zmachine.stack import CallStack
 from .memory import MemoryMap
 from .constants import IFF_HEADER, IFZS_ID
-from .protocol import ITerminalAdapter
-from .stack import CallStack
+from .protocol import ITerminalAdapter, ISerializable
 
 class IffType(Enum):
     HEADER = 'IFhd'
     COMPRESSED_MEMORY = 'CMem'
     CALL_STACK = 'Stks'
+    
 
 class Quetzal:
     def __init__(self, memory_map: MemoryMap, terminal_adapter: ITerminalAdapter):
@@ -31,7 +33,7 @@ class Quetzal:
     def write_word(self, addr, val):
         self.memory_map.write_word(addr, val)
 
-    def do_save(self, pc: int, call_stack: CallStack) -> bool:
+    def do_save(self, pc: int, call_stack: ISerializable) -> bool:
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(self.filepath, save_file)
         if os.path.exists(save_full_path):
@@ -65,15 +67,15 @@ class Quetzal:
             # TODO: Logging would be nice.
             return False
 
-    def do_restore(self, call_stack: CallStack) -> int | None:
-        """Returns the new program counter if successful, None otherwise."""
-        pc = None
+    def do_restore(self, call_stack: ISerializable) -> tuple[int, bool]:
+        """Returns a tuple with the new program counter and a boolean indicating success."""
+        pc = 0
         flags2_bits = self.read_word(0x10) & 0x3
         filepath = os.path.dirname(self.game_file)
         save_file = self.prompt_save_file()
         save_full_path = os.path.join(filepath, save_file)
         if not os.path.exists(save_full_path):
-            return None
+            return (pc, False)
         chunks: dict[str, IffChunk] = {}
         with open(save_full_path, 'rb') as s:
             header = s.read(4)
@@ -81,7 +83,7 @@ class Quetzal:
             form_type = s.read(4)
             if header != IFF_HEADER or form_type != IFZS_ID:
                 self.write_to_screen('Invalid save file!', True)
-                return None
+                return (pc, False)
             bytes_read = 8
             while bytes_read < data_len:
                 chunk = IffChunk.read(s)
@@ -98,12 +100,12 @@ class Quetzal:
             encoded_memory = mem_chunk.data
         except Exception as err:
             # print(f'{err}')
-            return None
+            return (pc, False)
         if release_number != self.config.release_number or \
                 serial_number != self.config.serial_number or \
                 checksum != self.config.checksum:
             self.write_to_screen("Invalid save file!", True)
-            return None
+            return (pc, False)
         dynamic_mem = self.uncompress_dynamic_memory(encoded_memory)
         self.memory_map.reset_dynamic_memory(dynamic_mem)
         call_stack.deserialize(stack_chunk.data)
@@ -113,7 +115,7 @@ class Quetzal:
         flags2 &= 0xfffc
         flags2 |= flags2_bits
         self.write_word(0x10, flags2)
-        return pc
+        return (pc, True)
 
     # There's no need to compress the dynamic memory for the save file
     # as modern computers have plenty of storage space.

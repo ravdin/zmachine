@@ -2,13 +2,11 @@ import os
 from . import opcodes
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
-from .constants import INPUT_BUFFER_LENGTH
 from .memory import MemoryMap
 from .object_table import ObjectTable
 from .event import EventArgs, DebugModeEventArgs, EventManager
-from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager
+from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
-from .quetzal import Quetzal
 from .undo import UndoStack
 from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType
 from .stack import CallStack, EvalStack
@@ -23,7 +21,7 @@ class ZMachineInterpreter:
                  screen: IScreen,
                  input_source: IInputSource,
                  output_manager: IOutputStreamManager,
-                 quetzal: Quetzal,
+                 quetzal: IQuetzal,
                  event_manager: EventManager, 
                  debug: bool = False):
         self.memory_map = memory_map
@@ -42,6 +40,7 @@ class ZMachineInterpreter:
         self.call_stack = CallStack()
         self.undo_stack = UndoStack()
         self.runtime_settings.on_change_debug_mode += self.on_change_debug_mode_handler
+        self.text_buffer = [0] * 240
         self.quit = False
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
@@ -132,11 +131,10 @@ class ZMachineInterpreter:
         return self.quetzal.do_save(self.pc, self.call_stack)
 
     def do_restore(self) -> bool:
-        restored_pc = self.quetzal.do_restore(self.call_stack)
-        if restored_pc is None:
-            return False
-        self.pc = restored_pc
-        return True
+        restored_pc, success = self.quetzal.do_restore(self.call_stack)
+        if success:
+            self.pc = restored_pc
+        return success
 
     def do_save_undo(self):
         call_stack_bytes = self.call_stack.serialize()
@@ -407,23 +405,21 @@ class ZMachineInterpreter:
     def do_read(self, text_buffer_addr: int, parse_buffer_addr: int, time: int = 0, routine: int = 0):
         timeout_ms = time * 100
         call_addr = self.unpack_addr(routine)
-        text_buffer_size = self.read_byte(text_buffer_addr)
-        if self.version <= 4:
-            text_buffer_size += 1
-        if text_buffer_size < 3:
+        max_text_buffer_size = self.read_byte(text_buffer_addr)
+        if max_text_buffer_size < 3:
             raise Exception("Fatal error: text buffer length less than 3")
-        text_buffer = [0] * max(text_buffer_size, INPUT_BUFFER_LENGTH)
+        self.text_buffer[:] = [0] * len(self.text_buffer)
         if self.version >= 5:
             initial_size = self.read_byte(text_buffer_addr + 1)
             for i in range(initial_size):
                 buffer_char = self.read_byte(text_buffer_addr + i + 2)
                 if buffer_char == 0:
                     break
-                text_buffer[i] = self.read_byte(text_buffer_addr + i + 2)
+                self.text_buffer[i] = self.read_byte(text_buffer_addr + i + 2)
         text_addr_offset = 1 if self.version <= 4 else 2
         current_pc = self.pc
         self.input_source.read_input(timeout_ms=timeout_ms,
-                                     text_buffer=text_buffer,
+                                     text_buffer=self.text_buffer,
                                      interrupt_routine_caller=self.do_direct_call,
                                      interrupt_routine_addr=call_addr,
                                      echo=True)
@@ -431,8 +427,9 @@ class ZMachineInterpreter:
         # terminating character) from byte 1 onwards in the text buffer, followed by a 0 byte.
         # For version 5+, write the number of typed characters in byte 1, followed by the character
         # bytes. Store the terminating character.
-        input_len = text_buffer.index(0)
-        input_chars = text_buffer[:input_len]
+        input_len = self.text_buffer.index(0) if 0 in self.text_buffer else len(self.text_buffer)
+        input_len = min(input_len, max_text_buffer_size)
+        input_chars = self.text_buffer[:input_len]
         terminating_char = 0 if input_len == 0 else input_chars[-1]
         for i in range(input_len - 1):
             self.write_byte(text_buffer_addr + text_addr_offset + i, input_chars[i])
@@ -447,7 +444,7 @@ class ZMachineInterpreter:
             if terminating_char != 0 or self.pc == current_pc:
                 self.do_store(terminating_char)
         if terminating_char == 13:
-            command = bytearray(text_buffer[:input_len - 1]).decode()
+            command = bytearray(self.text_buffer[:input_len - 1]).decode()
             self.parse_command(command, parse_buffer_addr)
 
     def do_read_char(self, time: int = 0, routine: int = 0):
@@ -478,7 +475,7 @@ class ZMachineInterpreter:
         max_words = self.read_byte(parse_buffer)
         if max_words < 1:
             raise Exception("Fatal error: parser buffer length less than 6 bytes")
-        self.write_byte(parse_buffer + 1, len(tokens))
+        self.write_byte(parse_buffer + 1, min(max_words, len(tokens)))
         parse_ptr = parse_buffer + 2
         for token, position in zip(tokens[:max_words], positions[:max_words]):
             dictionary_ptr = self.text_utils.lookup_dictionary(token, dictionary_addr)

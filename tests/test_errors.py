@@ -310,13 +310,11 @@ class TestTypeValidation:
     """Test type validation and contracts."""
     
     @pytest.mark.regression
-    def test_restore_never_returns_bool_on_any_error(
+    def test_restore_returns_false_on_any_error(
         self, memory_map, mock_terminal_adapter, tmp_path
     ):
         """
-        Comprehensive test that restore never returns bool.
-        
-        Tests all error paths to ensure bool is never returned.
+        Comprehensive test that restore returns false on error conditions.
         """
         from zmachine.quetzal import Quetzal
         from zmachine.stack import CallStack
@@ -344,13 +342,13 @@ class TestTypeValidation:
             else:
                 quetzal.prompt_save_file = lambda: filename.name
             
-            result = quetzal.do_restore(call_stack)
+            _, success = quetzal.do_restore(call_stack)
             
             # Critical assertions
-            assert not isinstance(result, bool), \
-                f"Error condition {i}: returned bool ({result})"
-            assert result is None or isinstance(result, int), \
-                f"Error condition {i}: returned {type(result)}, expected int | None"
+            assert isinstance(success, bool), \
+                f"Error condition {i}: returned bool ({success})"
+            assert success == False, \
+                f"Error condition {i}: expected False, got {success}"
     
     def _create_file_with_content(self, tmp_path, content):
         """Helper to create a file with given content."""
