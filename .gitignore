@@ -13,3 +13,4 @@ debug.txt
 .DS_Store
 .idea
 .mypy_cache
+profile.stats

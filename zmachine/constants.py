@@ -11,7 +11,6 @@ INTERPRETER_NUMBER: Final[int] = 0x141
 
 # Limits
 MAX_STACK_LENGTH: Final[int] = 1024
-INPUT_BUFFER_LENGTH: Final[int] = 200
 
 # Screen defaults
 DEFAULT_FOREGROUND_COLOR: Final[Color] = Color.WHITE

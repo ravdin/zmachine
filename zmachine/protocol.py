@@ -2,6 +2,34 @@ from typing import Protocol, Callable, runtime_checkable
 from .enums import WindowPosition, RoutineType
 
 @runtime_checkable
+class ISerializable(Protocol):
+    """Interface for objects that can be serialized to and deserialized from a byte representation."""
+    def serialize(self) -> bytes:
+        """Serialize the object to a byte representation."""
+        ...
+
+    def deserialize(self, data: bytes):
+        """Deserialize the object from a byte representation, overwriting the current state."""
+        ...
+
+@runtime_checkable
+class IQuetzal(Protocol):
+    def do_save(self, pc: int, call_stack: ISerializable) -> bool:
+        """Saves the game state. Returns true if successful."""
+        ...
+
+    def do_restore(self, call_stack: ISerializable) -> tuple[int, bool]:
+        """
+        Restores the game state.
+        
+        Returns:
+            Tuple of (pc, success) where:
+            - pc: Program counter from save file (only valid if success=True)
+            - success: True if restore succeeded, False otherwise
+        """
+        ...
+
+@runtime_checkable
 class IObjectTable(Protocol):
     """Object table interface that all object table implementations must support."""
     def get_attribute_flag(self, obj_id: int, attr_num: int) -> bool:
