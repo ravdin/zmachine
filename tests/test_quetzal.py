@@ -8,6 +8,7 @@ Critical tests include:
 """
 import pytest
 import os
+from unittest.mock import Mock, patch, mock_open
 from zmachine.quetzal import Quetzal
 from zmachine.stack import CallStack
 from tests.conftest import create_valid_quetzal_save
@@ -40,16 +41,13 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: os.path.basename(nonexistent_file)
         quetzal.game_file = str(tmp_path / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
         # The critical assertion: must be None, not False
-        assert result is None, f"Expected None, got {result}"
-        assert result is not False, "Must NOT return False - this would be treated as PC=0!"
-        assert not isinstance(result, bool), \
-            f"Return type must not be bool, got {type(result).__name__}"
+        assert success == False, f"Expected False, got {success}"
     
     @pytest.mark.unit
-    def test_restore_returns_none_on_invalid_header(
+    def test_restore_returns_false_on_invalid_header(
         self, memory_map, mock_terminal_adapter, temp_save_file
     ):
         """Restore should return None for invalid IFF header."""
@@ -64,14 +62,14 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
-        assert result is None
-        assert not isinstance(result, bool)
+        assert success == False
+        assert isinstance(success, bool)
         assert "Invalid save file!" in ''.join(mock_terminal_adapter.screen_output)
     
     @pytest.mark.unit
-    def test_restore_returns_none_on_wrong_form_type(
+    def test_restore_returns_false_on_wrong_form_type(
         self, memory_map, mock_terminal_adapter, temp_save_file
     ):
         """Restore should return None for wrong FORM type."""
@@ -86,10 +84,10 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
-        assert result is None
-        assert not isinstance(result, bool)
+        assert success == False
+        assert isinstance(success, bool)
     
     @pytest.mark.unit
     def test_restore_returns_int_on_success(
@@ -111,49 +109,16 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        restored_pc, success = quetzal.do_restore(self.call_stack)
         
         # Type assertions
-        assert isinstance(result, int), f"Expected int, got {type(result)}"
-        assert not isinstance(result, bool), "Must not be bool"
+        assert isinstance(restored_pc, int), f"Expected int, got {type(restored_pc)}"
+        assert isinstance(success, bool), "Must be bool"
         
         # Value assertions
-        assert result == test_pc, f"Expected PC={test_pc:#x}, got {result:#x}"
-        assert result > 0, "PC should be positive"
-    
-    @pytest.mark.regression
-    def test_restore_type_contract_never_bool(
-        self, test_config, memory_map, mock_terminal_adapter, temp_save_file, tmp_path
-    ):
-        """
-        CRITICAL: Explicitly test that False is never returned.
-        
-        This test exists because mypy cannot catch bool vs int due to
-        Python's type system (bool is a subclass of int).
-        """
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
-        quetzal.game_file = str(tmp_path / "test.z5")
-        
-        # Test various failure scenarios
-        test_cases = [
-            (lambda: "nonexistent.sav", "missing file"),
-            (lambda: self._create_invalid_header_save(temp_save_file), "invalid header"),
-            (lambda: self._create_wrong_form_save(temp_save_file), "wrong FORM type"),
-        ]
-        
-        for setup_func, scenario in test_cases:
-            filename = setup_func()
-            quetzal.prompt_save_file = lambda: os.path.basename(filename) if isinstance(filename, str) else filename.name
-            
-            result = quetzal.do_restore(self.call_stack)
-            
-            # The contract: int | None, never bool
-            assert result is not False, \
-                f"Scenario '{scenario}': must NOT return False"
-            assert result is None or isinstance(result, int), \
-                f"Scenario '{scenario}': must return int | None, got {type(result)}"
-            assert not isinstance(result, bool), \
-                f"Scenario '{scenario}': must not return bool"
+        assert restored_pc == test_pc, f"Expected PC={test_pc:#x}, got {restored_pc:#x}"
+        assert restored_pc > 0, "PC should be positive"
+        assert success == True, "Restore should succeed with valid file"
     
     @pytest.mark.unit
     def test_restore_validates_checksum(
@@ -174,9 +139,9 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
-        assert result is None
+        assert success == False
         assert "Invalid save file!" in ''.join(mock_terminal_adapter.screen_output)
     
     @pytest.mark.unit
@@ -198,9 +163,8 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
-        
-        assert result is None
+        _, success = quetzal.do_restore(self.call_stack)
+        assert success == False
     
     @pytest.mark.unit
     def test_restore_validates_serial_number(
@@ -221,12 +185,12 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
-        assert result is None
+        assert success == False
     
     @pytest.mark.unit
-    def test_restore_returns_none_on_missing_chunks(
+    def test_restore_returns_false_on_missing_chunks(
         self, test_config, memory_map, mock_terminal_adapter, temp_save_file
     ):
         """Restore should handle missing required chunks gracefully."""
@@ -242,11 +206,11 @@ class TestQuetzalRestore:
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
-        result = quetzal.do_restore(self.call_stack)
+        _, success = quetzal.do_restore(self.call_stack)
         
         # Should return None, not crash
-        assert result is None
-        assert not isinstance(result, bool)
+        assert success == False, "Should indicate failure when chunks are missing"
+        assert isinstance(success, bool)
     
     # Helper methods
     
@@ -285,17 +249,17 @@ class TestQuetzalIntegration:
         quetzal.game_file = str(tmp_path / "test.z5")
         
         call_stack = CallStack()
-        result = quetzal.do_restore(call_stack)
+        _, success = quetzal.do_restore(call_stack)
         
         # Simulate what interpreter does
-        if result is not None:
+        if success:
             # This block should NOT execute when restore fails
             pytest.fail("Interpreter would incorrectly set PC when restore failed!")
         else:
             # This is correct - restore failed, do nothing
             pass
         
-        assert result is None
+        assert success == False, "Restore should indicate failure"
 
 
 @pytest.mark.unit
@@ -317,3 +281,81 @@ class TestQuetzalSave:
         # This test requires save implementation
         # Placeholder for when save is fully implemented
         pytest.skip("Save test requires full save implementation")
+
+
+@pytest.mark.unit
+class TestQuetzalLogging:
+    """Test that Quetzal logs errors appropriately."""
+
+    @pytest.mark.unit
+    def test_save_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+        """Save should log exceptions and return False."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        call_stack = Mock()
+        call_stack.serialize = Mock(return_value=b'\x00' * 100)
+        with patch('builtins.open', new_callable=mock_open()) as mock_open_obj:
+            quetzal.compress_dynamic_memory = Mock(return_value=b'\x00' * 100)
+            mock_open_obj.side_effect = IOError("Disk full")
+
+            with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+                result = quetzal.do_save(pc=0x5000, call_stack=call_stack)
+
+                # Should return False
+                assert result is False
+                
+                # Should log the exception
+                mock_logger.warning.assert_called_once()
+                args = mock_logger.warning.call_args[0][0]
+                assert "Error occurred while saving game" in args
+                assert "Disk full" in args
+    
+    @pytest.mark.unit
+    def test_restore_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+        """Restore should log exceptions and return (pc, False)."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        # Create invalid save file
+        save_file = tmp_path / "bad.sav"
+        save_file.write_bytes(b'\x00' * 10)  # Too small, will raise exception
+        
+        quetzal.prompt_save_file = lambda: save_file.name
+        
+        call_stack = Mock()
+        
+        with patch('builtins.open', new_callable=mock_open()) as mock_open_obj:
+            mock_open_obj.side_effect = PermissionError("Permission denied")
+
+            with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+                pc, success = quetzal.do_restore(call_stack)
+                
+                # Should return False
+                assert success is False
+                
+                # Should log the exception
+                mock_logger.warning.assert_called_once()
+                args = mock_logger.warning.call_args[0][0]
+                assert "Error occurred while restoring game" in args
+    
+    @pytest.mark.unit
+    def test_save_success_no_log(self, test_config, memory_map, mock_terminal_adapter, tmp_path):
+        """Successful save should not log warnings."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        save_file = tmp_path / "save.sav"
+        quetzal.prompt_save_file = lambda: save_file.name
+        
+        call_stack = Mock()
+        call_stack.serialize = Mock(return_value=b'\x00' * 100)
+        
+        with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+            result = quetzal.do_save(pc=0x5000, call_stack=call_stack)
+            
+            # Should succeed
+            assert result is True
+            
+            # Should NOT log warnings
+            mock_logger.warning.assert_not_called()

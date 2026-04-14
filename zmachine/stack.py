@@ -89,7 +89,7 @@ class CallStack:
             raise Exception('Invalid stack frame')
         self.frame_ptr = frame_ptr
 
-    def serialize(self) -> bytearray:
+    def serialize(self) -> bytes:
         result = bytearray()
         for i in range(self.frame_ptr):
             frame = self.frames[i]

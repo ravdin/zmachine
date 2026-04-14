@@ -8,8 +8,9 @@ htmlcov
 *.txt
 !requirements.txt
 *.rec
-debug.txt
+*.log
 .vscode
 .DS_Store
 .idea
 .mypy_cache
+profile.stats

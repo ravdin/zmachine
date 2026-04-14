@@ -10,6 +10,7 @@ from zmachine.config import ZMachineConfig
 from zmachine.memory import MemoryMap
 from zmachine.enums import RoutineType, WindowPosition
 from zmachine.protocol import IZMachineInterpreter, IObjectTable
+from zmachine.text import TextUtils
 
 # Color enum will be added in PR #10
 try:
@@ -177,16 +178,28 @@ def mock_screen():
 
 
 @pytest.fixture
-def sample_game_data():
+def sample_game_data(request):
     """Provide minimal valid Z-Machine V5 game data."""
     # Create minimal valid Z-Machine file header
     # Need at least 64KB for a proper Z-Machine file
-    data = bytearray(0x1000)  # 4KB minimum
-    data[0] = 5  # Version 5
-    data[1:3] = b'\x00\x01'  # Release number
-    data[4:10] = b'840726'  # Serial number
-    data[0x0E:0x10] = b'\x00\x40'  # Static memory base = 0x0040 (after dynamic memory)
-    data[0x1C:0x1E] = b'\x12\x34'  # Checksum
+    version = getattr(request, 'param', 4)  # Default to version 4, can be overridden
+
+    data = bytearray(0x1000)  #4KB minimum
+    data[0] = version
+    data[2:4] = b'\x00\x01'  # Release number
+    data[0x8:0xa] = b'\x08\xb7'  # Dictionary table at 0x08b7
+    data[0x12:0x18] = b'840726'  # Serial number
+    data[0x18:0x1a] = b'\x01\xe8'  # Abbreviation table at 0x01e8
+    data[0x0E:0x10] = b'\x05\x00'  # Static memory base = 0x0500 (after dynamic memory)
+    data[0x1C:0x1E] = b'\x05\x34'  # Checksum
+    
+    data[0x08b7:0x08ba] = b'\x03\x2c\x2e\x22'  # [',', '.', '"'] as separators
+    # Abbreviation table with entries: "doesn't " and "Frobozz "
+    data[0x24F] = 0x8B
+    data[0x25B] = 0x97
+    data[0x116:0x11C] = b'\x11\x77\x50\xf4\xff\xe0'
+    data[0x12E:0x134] = b'\x26\x8a\x62\x65\xe3\x20' 
+
     return bytes(data)
 
 
@@ -210,6 +223,10 @@ def memory_map(test_config):
 def temp_save_file(tmp_path):
     """Provide a temporary save file path."""
     return tmp_path / "test_save.sav"
+
+@pytest.fixture
+def text_utils(memory_map):
+    return TextUtils(memory_map)
 
 
 # ============================================================================

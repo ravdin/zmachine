@@ -1,31 +1,39 @@
 import random
 import time
-from typing import Callable, Dict, Any
+from typing import Protocol, runtime_checkable
 from functools import wraps
 from .protocol import IZMachineInterpreter
 from .enums import RoutineType
 from .error import *
 
+@runtime_checkable
+class OpcodeHandler(Protocol):
+    def __call__(self, zm: IZMachineInterpreter, *operands: int) -> None:
+        ...
 
-def get_opcodes(version: int) -> Dict[int, Callable[[IZMachineInterpreter, *tuple[int, ...]], Any]]:
+    @property
+    def __name__(self) -> str:
+        ...
+
+
+def get_opcodes(version: int) -> dict[int, OpcodeHandler]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_all_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-def get_extended_opcodes(version: int) -> Dict[int, Callable[[IZMachineInterpreter, *tuple[int, ...]], Any]]:
+def get_extended_opcodes(version: int) -> dict[int, OpcodeHandler]:
     def predicate(opcode: Opcode):
         return opcode.min_version <= version <= opcode.max_version
     versioned = filter(predicate, Opcode.get_extended_opcodes())
     return {item.opcode: item.op for item in versioned}
 
 
-def signed_operands(op):
+def signed_operands(op: OpcodeHandler):
     @wraps(op)
-    def sign_and_execute(*args):
-        zm, operands = args[0], [sign_uint16(o) for o in args[1:]]
-        return op(zm, *operands)
+    def sign_and_execute(zm: IZMachineInterpreter, *unsigned_operands: int):
+        return op(zm, *[sign_uint16(o) for o in unsigned_operands])
     return sign_and_execute
 
 
@@ -37,7 +45,7 @@ def sign_uint16(num: int) -> int:
 
 class Opcode:
     def __init__(self,
-                 op: Callable[[IZMachineInterpreter, *tuple[int, ...]], Any],
+                 op: OpcodeHandler,
                  opcode: int,
                  min_version: int = 1,
                  max_version: int = 6):
