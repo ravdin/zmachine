@@ -1,5 +1,6 @@
 from .error import IllegalWriteException, InvalidMemoryException
 from .config import ZMachineConfig
+from .logging import LogLevel, memory_logger as logger
 from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 class MemoryMap:
@@ -50,21 +51,29 @@ class MemoryMap:
         return packed_addr << shift
 
     def read_byte(self, addr: int) -> int:
+        if logger.isEnabledFor(LogLevel.DEBUG):
+            logger.debug(f"READ 0x{addr:04X}")
         if addr >= len(self._memory_map):
             raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr]
 
     def read_word(self, addr: int) -> int:
+        if logger.isEnabledFor(LogLevel.DEBUG):
+            logger.debug(f"READ 0x{addr:04X}:0x{addr + 1:04X}")
         if addr + 1 >= len(self._memory_map):
             raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
     def write_byte(self, addr: int, val: int):
+        if logger.isEnabledFor(LogLevel.DEBUG):
+            logger.debug(f"WRITE 0x{addr:04X} = 0x{val:02X}")
         if addr >= self.config.static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val & 0xff
 
     def write_word(self, addr: int, val: int):
+        if logger.isEnabledFor(LogLevel.DEBUG):
+            logger.debug(f"WRITE 0x{addr:04X}:0x{addr + 1:04X} = 0x{val:02X}")
         if addr + 1 >= self.config.static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val >> 8 & 0xff

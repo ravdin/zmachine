@@ -58,19 +58,10 @@ class HotkeyHandler:
             'Alt-s: Set a random seed',
             'Alt-r: Record input',
             'Alt-p: Playback recorded input',
-            'Alt-d: Write instructions to debug file',
             ''
         )
         for item in help_text:
             self.terminal_adapter.write_to_screen(item + '\n')
-
-    @hotkey_wrapper
-    def toggle_debug_mode(self):
-        debug_mode = self.runtime_settings.toggle_debug_mode()
-        if debug_mode:
-            self.terminal_adapter.write_to_screen("Debug mode enabled.\n")
-        else:
-            self.terminal_adapter.write_to_screen("Debug mode disabled.\n")
 
     @hotkey_wrapper
     def set_random_seed(self):

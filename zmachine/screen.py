@@ -1,8 +1,8 @@
-from abc import ABC, abstractmethod
 from .error import InvalidScreenOperationException
 from .event import EventManager, EventArgs
 from .enums import WindowPosition, TextStyle
 from .protocol import ITerminalAdapter
+from .logging import screen_logger as logger
 from .constants import SUPPORTED_VERSIONS, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 
 
@@ -66,6 +66,7 @@ class BaseScreen:
     
     @buffer_mode.setter
     def buffer_mode(self, value: bool) -> None:
+        logger.info(f"Setting buffer mode to {value}")
         self._buffer_mode = value
         if not value:
             self.flush_buffer(self.lower_window)
@@ -91,6 +92,7 @@ class BaseScreen:
         raise NotImplementedError(f"Status line is not implemented in v{self.version} screen.")
         
     def set_window(self, window_id: int) -> None:
+        logger.info(f"Setting active window to {window_id}")
         if window_id == WindowPosition.LOWER:
             self.set_active_window(self.lower_window)
         elif window_id == WindowPosition.UPPER:
@@ -100,6 +102,7 @@ class BaseScreen:
             raise InvalidScreenOperationException("Invalid window ID.")
         
     def split_window(self, lines: int) -> None: 
+        logger.info(f"Splitting window at line {lines}")
         self.flush_buffer(self.lower_window)
         self.active_window.sync_cursor(*self.terminal_adapter.get_coordinates())
         lower_window_y = lines + self.upper_window.y_pos
@@ -330,6 +333,7 @@ class ScreenV4(BaseScreen):
         self.upper_window.sync_cursor(y_pos, x_pos)
 
     def set_text_style(self, style: int) -> None:
+        logger.info(f"Setting text style to {style}")
         self.flush_buffer(self.active_window)
         if style == TextStyle.ROMAN:
             self.active_window.style_attributes = TextStyle.ROMAN

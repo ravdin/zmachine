@@ -1,6 +1,10 @@
+from .logging import error_logger as logger
+
 class ZMachineException(Exception):
     """Base class for all Z-machine exceptions."""
-    pass
+    def __init__(self, message):
+        logger.error(message)
+        super().__init__(message)
 
 class InvalidScreenOperationException(ZMachineException):
     """Raised when screen operation is not allowed."""

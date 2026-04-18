@@ -1,29 +1,10 @@
 from .memory import MemoryMap
-from .event import Event, DebugModeEventArgs
 
 class RuntimeSettings:
     """Runtime settings that can be modified."""
     
     def __init__(self, memory_map: MemoryMap):
         self.memory_map = memory_map
-        self._debug_mode = False
-        self.on_change_debug_mode: Event[DebugModeEventArgs] = Event[DebugModeEventArgs]()
-
-    @property
-    def debug_mode(self) -> bool:
-        return self._debug_mode
-    
-    @debug_mode.setter
-    def debug_mode(self, value: bool):
-        if self._debug_mode == value:
-            return
-        self._debug_mode = value
-        event_args = DebugModeEventArgs(debug_mode = self._debug_mode)
-        self.on_change_debug_mode.invoke(self, event_args)
-
-    def toggle_debug_mode(self) -> bool:
-        self.debug_mode = not self.debug_mode
-        return self.debug_mode
 
     @property
     def transcript_active_flag(self) -> bool:

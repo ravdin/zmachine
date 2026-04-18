@@ -151,8 +151,6 @@ class KeyboardInputStream(InputStream):
                             return
                     elif c == Hotkey.RECORD:
                         self.hotkey_handler.toggle_record_stream()
-                    elif c == Hotkey.DEBUG:
-                        self.hotkey_handler.toggle_debug_mode()
                     continue
                 if c in self.config.interrupt_zchars:
                     text_buffer[buffer_pos] = c

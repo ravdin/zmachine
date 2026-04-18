@@ -1,15 +1,15 @@
-import os
 from . import opcodes
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .memory import MemoryMap
 from .object_table import ObjectTable
-from .event import EventArgs, DebugModeEventArgs, EventManager
+from .event import EventArgs, EventManager
 from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
 from .undo import UndoStack
 from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType
 from .stack import CallStack, EvalStack
+from .logging import LogLevel, opcodes_logger, interpreter_logger
 from .error import *
 
 
@@ -39,14 +39,11 @@ class ZMachineInterpreter:
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
         self.call_stack = CallStack()
         self.undo_stack = UndoStack()
-        self.runtime_settings.on_change_debug_mode += self.on_change_debug_mode_handler
         self.text_buffer = [0] * 240
         self.quit = False
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
             self.event_manager.pre_read_input += self.pre_read_input_handler
-        if debug:
-            self.runtime_settings.debug_mode = True
 
     @property
     def version(self) -> int:
@@ -80,14 +77,6 @@ class ZMachineInterpreter:
 
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
-
-    def on_change_debug_mode_handler(self, sender, e: DebugModeEventArgs):
-        if e.debug_mode:
-            debug_file = 'debug.txt'
-            filepath = os.path.dirname(self.config.game_file)
-            self.debug_file = os.path.join(filepath, debug_file)
-            with open(self.debug_file, 'w') as s:
-                s.write('')
 
     def do_show_status(self):
         # In later versions, treat as a nop.
@@ -226,10 +215,20 @@ class ZMachineInterpreter:
                     break
                 shift -= 2
         try:
-            if self.runtime_settings.debug_mode:
+            if opcodes_logger.isEnabledFor(LogLevel.OPCODE):
                 opname = opcode_dict[opcode_number].__name__[3:].upper()
-                with open(self.debug_file, 'a') as s:
-                    s.write('{0:x}: {1}  {2}\n'.format(instruction_ptr, opname, ','.join([str(o) for o in operands])))
+                debug_msg = '{0:x}: {1}  {2}'.format(instruction_ptr, opname, ','.join([str(o) for o in operands]))
+                if opname.startswith('PRINT'):
+                    addr = 0
+                    if opname == 'PRINT_ADDR':
+                        addr = operands[0]
+                    elif opname == 'PRINT_PADDR':
+                        addr = self.unpack_addr(operands[0])
+                    elif opname in ('PRINT', 'PRINT_RET'):
+                        addr = self.pc
+                    if addr != 0:
+                        debug_msg += f' "{self.string_from_addr(addr)}"'
+                opcodes_logger.debug(debug_msg)
             op = opcode_dict[opcode_number]
             op(self, *operands)
         except KeyError:
@@ -516,6 +515,7 @@ class ZMachineInterpreter:
         self.screen.buffer_mode = mode
 
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+        interpreter_logger.info(f"Selecting output stream {stream_id}")
         if abs(stream_id) == OutputStreamType.SCREEN:
             if stream_id > 0:
                 self.output_manager.screen_stream.open()
@@ -562,3 +562,8 @@ class ZMachineInterpreter:
             table[i] = str(bytes(row[:row_length]), encoding='utf-8')
             addr += width + skip
         self.screen.print_table(table)
+
+    def string_from_addr(self, addr: int) -> str:
+        zchars: list[int] = []
+        self.text_utils.read_zchars(addr, zchars)
+        return self.text_utils.zscii_decode(zchars)

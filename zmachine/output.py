@@ -1,3 +1,4 @@
+import os
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .memory import MemoryMap
@@ -5,7 +6,7 @@ from .protocol import IScreen, ITerminalAdapter, IOutputStream, IMemoryOutputStr
 from .event import EventManager, EventArgs, PostReadInputEventArgs
 from .enums import WindowPosition, OutputStreamType
 from .error import StreamException
-import os
+from .logging import output_logger as logger
 
 
 class OutputStreamManager:
@@ -71,12 +72,15 @@ class OutputStream:
     
     @is_active.setter
     def is_active(self, value: bool):
+        if value:
+            logger.info(f"Opening {self.__class__.__name__}")
         self._is_active = value
 
     def write(self, text: str, newline: bool):
         raise NotImplementedError('Write operation not supported from base class')
 
     def close(self):
+        logger.info(f"Closing {self.__class__.__name__}")
         self.is_active = False
 
     def register_delegates(self, event_manager: EventManager):
@@ -196,6 +200,7 @@ class MemoryStream(OutputStream):
 
     def open(self, table_addr: int):
         self.is_active = True
+        logger.info(f"Opening memory stream for table at address {table_addr:x}")
         if self.stack_ptr == len(self.table_stack):
             raise StreamException('Opened too many memory streams')
         self.table_stack[self.stack_ptr] = (table_addr, self.buffer_ptr)

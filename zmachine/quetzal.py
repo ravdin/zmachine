@@ -6,6 +6,7 @@ from zmachine.stack import CallStack
 from .memory import MemoryMap
 from .constants import IFF_HEADER, IFZS_ID
 from .protocol import ITerminalAdapter, ISerializable
+from .logging import quetzal_logger
 
 class IffType(Enum):
     HEADER = 'IFhd'
@@ -63,8 +64,8 @@ class Quetzal:
                 stack_chunk.write(s)
             self.save_file = save_file
             return True
-        except:
-            # TODO: Logging would be nice.
+        except Exception as err:
+            quetzal_logger.warning(f"Error occurred while saving game: {err}")
             return False
 
     def do_restore(self, call_stack: ISerializable) -> tuple[int, bool]:
@@ -77,19 +78,19 @@ class Quetzal:
         if not os.path.exists(save_full_path):
             return (pc, False)
         chunks: dict[str, IffChunk] = {}
-        with open(save_full_path, 'rb') as s:
-            header = s.read(4)
-            data_len = int.from_bytes(s.read(4), "big")
-            form_type = s.read(4)
-            if header != IFF_HEADER or form_type != IFZS_ID:
-                self.write_to_screen('Invalid save file!', True)
-                return (pc, False)
-            bytes_read = 8
-            while bytes_read < data_len:
-                chunk = IffChunk.read(s)
-                bytes_read += len(chunk)
-                chunks[chunk.header] = chunk
         try:
+            with open(save_full_path, 'rb') as s:
+                header = s.read(4)
+                data_len = int.from_bytes(s.read(4), "big")
+                form_type = s.read(4)
+                if header != IFF_HEADER or form_type != IFZS_ID:
+                    self.write_to_screen('Invalid save file!', True)
+                    return (pc, False)
+                bytes_read = 8
+                while bytes_read < data_len:
+                    chunk = IffChunk.read(s)
+                    bytes_read += len(chunk)
+                    chunks[chunk.header] = chunk
             header_chunk = chunks[IffType.HEADER.value]
             mem_chunk = chunks[IffType.COMPRESSED_MEMORY.value]
             stack_chunk = chunks[IffType.CALL_STACK.value]
@@ -99,7 +100,7 @@ class Quetzal:
             pc = int.from_bytes(header_chunk.data[10:13], "big")
             encoded_memory = mem_chunk.data
         except Exception as err:
-            # print(f'{err}')
+            quetzal_logger.warning(f"Error occurred while restoring game: {err}")
             return (pc, False)
         if release_number != self.config.release_number or \
                 serial_number != self.config.serial_number or \

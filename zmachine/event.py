@@ -1,4 +1,4 @@
-from typing import Callable, List, Dict, Any
+from typing import Callable, List, Any
 from dataclasses import dataclass
 
 @dataclass
@@ -6,9 +6,6 @@ class EventArgs:
     """Base class for event arguments."""
     pass
 
-@dataclass
-class DebugModeEventArgs(EventArgs):
-    debug_mode: bool
 
 @dataclass
 class PostReadInputEventArgs(EventArgs):

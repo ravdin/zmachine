@@ -486,9 +486,6 @@ class IHotkeyHandler(Protocol):
     def display_help(self):
         """Display a help message describing the available hotkeys."""
         ...
-    def toggle_debug_mode(self):
-        """Toggle debug mode on or off."""
-        ...
     def set_random_seed(self):
         """Prompt the user to enter a random seed and set it for the random module."""
         ...

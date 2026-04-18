@@ -8,6 +8,7 @@ Critical tests include:
 """
 import pytest
 import os
+from unittest.mock import Mock, patch, mock_open
 from zmachine.quetzal import Quetzal
 from zmachine.stack import CallStack
 from tests.conftest import create_valid_quetzal_save
@@ -280,3 +281,81 @@ class TestQuetzalSave:
         # This test requires save implementation
         # Placeholder for when save is fully implemented
         pytest.skip("Save test requires full save implementation")
+
+
+@pytest.mark.unit
+class TestQuetzalLogging:
+    """Test that Quetzal logs errors appropriately."""
+
+    @pytest.mark.unit
+    def test_save_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+        """Save should log exceptions and return False."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        call_stack = Mock()
+        call_stack.serialize = Mock(return_value=b'\x00' * 100)
+        with patch('builtins.open', new_callable=mock_open()) as mock_open_obj:
+            quetzal.compress_dynamic_memory = Mock(return_value=b'\x00' * 100)
+            mock_open_obj.side_effect = IOError("Disk full")
+
+            with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+                result = quetzal.do_save(pc=0x5000, call_stack=call_stack)
+
+                # Should return False
+                assert result is False
+                
+                # Should log the exception
+                mock_logger.warning.assert_called_once()
+                args = mock_logger.warning.call_args[0][0]
+                assert "Error occurred while saving game" in args
+                assert "Disk full" in args
+    
+    @pytest.mark.unit
+    def test_restore_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+        """Restore should log exceptions and return (pc, False)."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        # Create invalid save file
+        save_file = tmp_path / "bad.sav"
+        save_file.write_bytes(b'\x00' * 10)  # Too small, will raise exception
+        
+        quetzal.prompt_save_file = lambda: save_file.name
+        
+        call_stack = Mock()
+        
+        with patch('builtins.open', new_callable=mock_open()) as mock_open_obj:
+            mock_open_obj.side_effect = PermissionError("Permission denied")
+
+            with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+                pc, success = quetzal.do_restore(call_stack)
+                
+                # Should return False
+                assert success is False
+                
+                # Should log the exception
+                mock_logger.warning.assert_called_once()
+                args = mock_logger.warning.call_args[0][0]
+                assert "Error occurred while restoring game" in args
+    
+    @pytest.mark.unit
+    def test_save_success_no_log(self, test_config, memory_map, mock_terminal_adapter, tmp_path):
+        """Successful save should not log warnings."""
+        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal.game_file = str(tmp_path / "test.z5")
+        
+        save_file = tmp_path / "save.sav"
+        quetzal.prompt_save_file = lambda: save_file.name
+        
+        call_stack = Mock()
+        call_stack.serialize = Mock(return_value=b'\x00' * 100)
+        
+        with patch('zmachine.quetzal.quetzal_logger') as mock_logger:
+            result = quetzal.do_save(pc=0x5000, call_stack=call_stack)
+            
+            # Should succeed
+            assert result is True
+            
+            # Should NOT log warnings
+            mock_logger.warning.assert_not_called()
