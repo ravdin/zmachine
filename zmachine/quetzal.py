@@ -1,6 +1,8 @@
 import os
 from enum import Enum
-from typing import BinaryIO
+from typing import BinaryIO, Protocol, runtime_checkable
+
+from zmachine.stack import CallStack
 from .memory import MemoryMap
 from .constants import IFF_HEADER, IFZS_ID
 from .protocol import ITerminalAdapter, ISerializable
