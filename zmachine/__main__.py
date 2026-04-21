@@ -1,6 +1,6 @@
-import sys
 import argparse
 import logging
+from .enums import UIType
 from .logging import setup_logging
 from .builder import ZMachineBuilder
 
@@ -32,6 +32,11 @@ def main():
         action='store_true',
         help='Wait for debugger to attach on port 5678'
     )
+    parser.add_argument(
+        '--graphics',
+        action='store_true',
+        help='Enable graphics rendering for V5+ games'
+    )
     args = parser.parse_args()
     
     if args.debug:
@@ -42,6 +47,10 @@ def main():
         print("   In VSCode: Run > Start Debugging > 'Attach to Z-Machine'")
         debugpy.wait_for_client()
         print("✅ Debugger attached!\n")
+
+    ui_type = UIType.TEXT
+    if args.graphics:
+        ui_type = UIType.GRAPHICS
     
     # Map string to logging level
     level_map = {
@@ -59,7 +68,7 @@ def main():
         log_memory=args.log_memory
     )
     
-    builder = ZMachineBuilder(args.story_file)
+    builder = ZMachineBuilder(args.story_file, ui_type)
     builder.start()
 
 

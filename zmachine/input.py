@@ -1,7 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from typing import Callable
-from .enums import TerminalEscape, InputStreamType, Hotkey
+from .enums import TerminalEscape, Hotkey
 from .config import ZMachineConfig
 from .constants import ESCAPE_CHAR
 from .event import EventManager, EventArgs, PostReadInputEventArgs

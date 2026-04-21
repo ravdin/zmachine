@@ -1,7 +1,6 @@
 import curses
 import atexit
 from .enums import TextStyle, Color
-from .config import ZMachineConfig
 
 
 class CursesAdapter:
@@ -24,12 +23,11 @@ class CursesAdapter:
     }
     CURSES_COLORS = {v: k for k, v in COLORS.items()}
 
-    def __init__(self, config: ZMachineConfig):
+    def __init__(self):
         super().__init__()
         self.main_screen = curses.initscr()
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
-        self.config = config
         self._initialize_curses()
         atexit.register(self.shutdown)
 
