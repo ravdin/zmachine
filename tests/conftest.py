@@ -4,12 +4,11 @@ Shared pytest fixtures and test utilities for Z-Machine tests.
 This module provides common fixtures that can be used across all test modules.
 """
 import pytest
-import os
-from typing import Protocol, Tuple
+from typing import Tuple
 from zmachine.config import ZMachineConfig
 from zmachine.memory import MemoryMap
-from zmachine.enums import RoutineType, WindowPosition
-from zmachine.protocol import IZMachineInterpreter, IObjectTable
+from zmachine.enums import RoutineType, WindowPosition, FontEnum
+from zmachine.protocol import IObjectTable
 from zmachine.text import TextUtils
 
 # Color enum will be added in PR #10
@@ -46,6 +45,7 @@ class MockTerminalAdapter:
         self.color_pair = (Color.BLACK, Color.WHITE)
         self.scrollable_height = height
         self.timeout_ms = -1
+        self._at_wrap_boundary = False
         self.shutdown_called = False
         
     @property
@@ -56,6 +56,10 @@ class MockTerminalAdapter:
     def width(self) -> int:
         return self._width
     
+    @property
+    def at_wrap_boundary(self) -> bool:
+        return self._at_wrap_boundary
+    
     def refresh(self):
         pass
     
@@ -63,8 +67,24 @@ class MockTerminalAdapter:
         self.scrollable_height = top
     
     def write_to_screen(self, text: str):
-        self.screen_output.append(text)
-    
+        x_pos = self.cursor_pos[1]
+        for c in text:
+            self._at_wrap_boundary = False
+            if c == '\n':
+                self.screen_output += ['']
+                x_pos = 0
+                continue
+            if x_pos == 0:
+                self.screen_output += [c]
+                x_pos = 1
+            else:
+                self.screen_output[-1] += c
+                x_pos += 1
+            if x_pos == self.width:
+                self._at_wrap_boundary = True
+                x_pos = 0
+        self.move_cursor(self.cursor_pos[0], x_pos)
+
     def get_input_char(self, echo: bool = True) -> int:
         if self.input_chars:
             return self.input_chars.pop(0)
@@ -105,8 +125,14 @@ class MockTerminalAdapter:
     
     def apply_style_attributes(self, attributes: int):
         self.style_attributes = attributes
+
+    def is_font_supported(self, font_id: int) -> bool:
+        return False
     
-    def set_color(self, background_color: int, foreground_color: int):
+    def apply_font(self, font: FontEnum):
+        pass
+    
+    def apply_color_settings(self, background_color: int, foreground_color: int):
         self.color_pair = (background_color, foreground_color)
     
     def sound_effect(self, sound_type: int):
@@ -225,8 +251,8 @@ def temp_save_file(tmp_path):
     return tmp_path / "test_save.sav"
 
 @pytest.fixture
-def text_utils(memory_map):
-    return TextUtils(memory_map)
+def text_utils(memory_map, test_config):
+    return TextUtils(memory_map, test_config)
 
 
 # ============================================================================
@@ -567,6 +593,9 @@ class MockInterpreter:
         pass
     
     def do_set_color(self, foreground_color: int, background_color: int):
+        pass
+
+    def do_set_font(self, font_id: int):
         pass
 
 class MockObjectTable:

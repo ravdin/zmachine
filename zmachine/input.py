@@ -1,7 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from typing import Callable
-from .enums import TerminalEscape, InputStreamType, Hotkey
+from .enums import TerminalEscape, Hotkey
 from .config import ZMachineConfig
 from .constants import ESCAPE_CHAR
 from .event import EventManager, EventArgs, PostReadInputEventArgs
@@ -15,18 +15,7 @@ class KeyboardInputParser:
         self.terminal_adapter.set_timeout(timeout_ms)
 
     def get_next_char(self, echo: bool = True) -> int:
-        c = self.terminal_adapter.get_input_char(echo)
-        if c == ESCAPE_CHAR:
-            # Escape sequence.
-            # For special characters (arrows, function keys), the remaining characters
-            # will be in the keyboard input stream.
-            escape_sequence = self.terminal_adapter.get_escape_sequence()
-            terminal_mapping = TerminalEscape.lookup_sequence(tuple(escape_sequence))
-            if terminal_mapping is None:
-                return ESCAPE_CHAR
-            else:
-                return terminal_mapping.zscii_char
-        return c
+        return self.terminal_adapter.get_input_char(echo)
     
     def backspace(self, backspace_chars: int = 1):
         y, x = self.terminal_adapter.get_coordinates()

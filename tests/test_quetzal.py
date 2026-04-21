@@ -24,7 +24,7 @@ class TestQuetzalRestore:
     
     @pytest.mark.regression
     def test_restore_returns_none_not_false_on_missing_file(
-        self, memory_map, mock_terminal_adapter, tmp_path
+        self, memory_map, test_config, mock_terminal_adapter, tmp_path
     ):
         """
         REGRESSION TEST: Restore must return None, never False.
@@ -34,7 +34,7 @@ class TestQuetzalRestore:
         
         Fix: Must return None so interpreter knows restore failed.
         """
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         
         # Mock prompt to return non-existent file
         nonexistent_file = str(tmp_path / "nonexistent.sav")
@@ -48,7 +48,7 @@ class TestQuetzalRestore:
     
     @pytest.mark.unit
     def test_restore_returns_false_on_invalid_header(
-        self, memory_map, mock_terminal_adapter, temp_save_file
+        self, memory_map, test_config, mock_terminal_adapter, temp_save_file
     ):
         """Restore should return None for invalid IFF header."""
         # Create file with wrong header
@@ -58,7 +58,7 @@ class TestQuetzalRestore:
             b"IFZS"
         )
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -70,7 +70,7 @@ class TestQuetzalRestore:
     
     @pytest.mark.unit
     def test_restore_returns_false_on_wrong_form_type(
-        self, memory_map, mock_terminal_adapter, temp_save_file
+        self, memory_map, test_config, mock_terminal_adapter, temp_save_file
     ):
         """Restore should return None for wrong FORM type."""
         # Create file with correct IFF but wrong form type
@@ -80,7 +80,7 @@ class TestQuetzalRestore:
             b"XXXX"  # Wrong form type (should be 'IFZS')
         )
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -105,7 +105,7 @@ class TestQuetzalRestore:
         )
         temp_save_file.write_bytes(save_data)
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -135,7 +135,7 @@ class TestQuetzalRestore:
         )
         temp_save_file.write_bytes(save_data)
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -159,7 +159,7 @@ class TestQuetzalRestore:
         )
         temp_save_file.write_bytes(save_data)
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -181,7 +181,7 @@ class TestQuetzalRestore:
         )
         temp_save_file.write_bytes(save_data)
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -202,7 +202,7 @@ class TestQuetzalRestore:
         )
         temp_save_file.write_bytes(incomplete_save)
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -244,7 +244,7 @@ class TestQuetzalIntegration:
         # This test would require full interpreter setup
         # Simplified version focusing on the critical contract
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: "nonexistent.sav"
         quetzal.game_file = str(tmp_path / "test.z5")
         
@@ -268,10 +268,10 @@ class TestQuetzalSave:
     
     @pytest.mark.unit
     def test_save_creates_valid_file(
-        self, memory_map, mock_terminal_adapter, temp_save_file
+        self, memory_map, test_config, mock_terminal_adapter, temp_save_file
     ):
         """Save should create a valid Quetzal file."""
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.prompt_save_file = lambda: temp_save_file.name
         quetzal.game_file = str(temp_save_file.parent / "test.z5")
         
@@ -288,9 +288,9 @@ class TestQuetzalLogging:
     """Test that Quetzal logs errors appropriately."""
 
     @pytest.mark.unit
-    def test_save_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+    def test_save_logs_exception(self, memory_map, test_config, mock_terminal_adapter, tmp_path):
         """Save should log exceptions and return False."""
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.game_file = str(tmp_path / "test.z5")
         
         call_stack = Mock()
@@ -312,9 +312,9 @@ class TestQuetzalLogging:
                 assert "Disk full" in args
     
     @pytest.mark.unit
-    def test_restore_logs_exception(self, memory_map, mock_terminal_adapter, tmp_path):
+    def test_restore_logs_exception(self, memory_map, test_config, mock_terminal_adapter, tmp_path):
         """Restore should log exceptions and return (pc, False)."""
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.game_file = str(tmp_path / "test.z5")
         
         # Create invalid save file
@@ -342,7 +342,7 @@ class TestQuetzalLogging:
     @pytest.mark.unit
     def test_save_success_no_log(self, test_config, memory_map, mock_terminal_adapter, tmp_path):
         """Successful save should not log warnings."""
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.game_file = str(tmp_path / "test.z5")
         
         save_file = tmp_path / "save.sav"

@@ -5,7 +5,7 @@ Tests the actual Interpreter class with mocked dependencies (screen, input, etc.
 These tests verify interpreter-level operations like read and tokenize.
 """
 import pytest
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 from unittest.mock import Mock, MagicMock
 from dataclasses import dataclass
 from zmachine.settings import RuntimeSettings
@@ -84,10 +84,11 @@ def mock_output_stream_manager():
 
 
 @pytest.fixture
-def mock_text_utils(memory_map):
+def mock_text_utils(memory_map, test_config):
     """Mock text utilities with configurable dictionary."""
     result = Mock()
     result.memory_map = memory_map
+    result.config = test_config
     result.separator_chars = [' ', '.', ',']
     result.tokenize = TextUtils.tokenize  # Use real tokenize method
     
@@ -112,7 +113,7 @@ def mock_text_utils(memory_map):
         entry_offset = result.dictionary_entries.get(text, 0)
         if entry_offset == 0:
             return 0
-        base_addr = memory_map.config.dictionary_table_addr
+        base_addr = result.config.dictionary_table_addr
         return base_addr + entry_offset
     
     result.lookup_dictionary = lookup_dictionary
@@ -123,6 +124,7 @@ def mock_event_manager():
     """Mock event manager."""
     manager = Mock()
     manager.pre_read_input = MagicMock()
+    manager.on_mouse_click = MagicMock()
     return manager
 
 

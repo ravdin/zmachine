@@ -8,11 +8,11 @@ Critical tests include:
 - Color handling
 """
 import pytest
-from zmachine.screen import BaseScreen, ScreenV3, ScreenV4, ScreenV5, Window
+from unittest.mock import MagicMock
+from zmachine.screen import ScreenV3, ScreenV4, ScreenV5, Window
 from zmachine.event import EventManager
 from zmachine.enums import WindowPosition, TextStyle, Color
 from zmachine.constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
-from tests.conftest import assert_cursor_moved_before_print
 
 
 @pytest.mark.unit
@@ -74,6 +74,121 @@ class TestBaseScreen:
         output = ''.join(mock_terminal_adapter.screen_output)
         assert "buffered" in output
         assert "direct" in output
+
+    @pytest.mark.unit
+    def test_wrap_boundary_not_treated_as_indent(self, mock_terminal_adapter):
+        """
+        REGRESSION TEST: A space at the start of a line caused by word wrapping
+        at the exact screen width must not be treated as an intentional indent. 
+        If there are multiple screen flushes the output must be the same as if
+        the screen buffer had been flushed once.
+
+        Scenario:
+        1. Flush text shorter than screen width, ending with a space.
+        2. Flush text with no leading/trailing spaces that exactly fills
+            the remaining screen width. Cursor is now at the right edge,
+            setting a wrap boundary.
+        3. Flush text that starts with a space (intentional indent).
+
+        Expected:
+        - Two lines written to the screen.
+        - Line 1 exactly fills the screen width (flush 1 + flush 2 combined).
+        - Line 2 does not start with a space (word wrapping across screen flushes
+            is preserved).
+        """
+        screen = ScreenV4(mock_terminal_adapter, self.event_manager)
+        width = mock_terminal_adapter.width
+
+        # Flush 1: text shorter than screen width, ending with a space.
+        prefix = "The runes "
+        assert len(prefix) < width
+
+        # Flush 2: no leading/trailing spaces, exactly fills remaining width.
+        remaining = width - len(prefix)
+        middle = "a" * remaining
+        assert len(prefix) + len(middle) == width
+
+        # Flush 3: intentional indent - starts with a space.
+        indent_text = " are inscribed across the top."
+
+        def buffer_and_flush(text, newline = False):
+            screen.print(text, newline)
+            screen.flush_buffer(screen.lower_window)
+
+        buffer_and_flush(prefix)
+        buffer_and_flush(middle)
+        buffer_and_flush(indent_text, True)
+
+        # Inspect what was written to the adapter
+        lines = mock_terminal_adapter.screen_output
+
+        assert len(lines) >= 2, \
+            f"Expected at least 2 lines, got: {lines!r}"
+
+        assert lines[0] == prefix + middle, \
+            f"Expected line 1 to be exactly {(prefix + middle)!r}, got: {lines[0]!r}"
+
+        assert lines[1] == indent_text[1:], \
+            f"Expected line 2 not to start with a space, " \
+            f"got: {lines[1]!r}"
+        
+    @pytest.mark.unit
+    def test_pause_line_count_with_full_width_lines(self, mock_terminal_adapter):
+        """
+        REGRESSION TEST: When a line of text exactly fills the screen width,
+        the output line counter must still increment correctly so that the
+        pause-after-page logic triggers at the right time.
+
+        The bug: if cursor_x == width after a write, get_coordinates() returns
+        x != 0 on the NEXT call, so flush_buffer's line count check
+        (which looks for x == 0 after each write) would miss the increment.
+        This caused the screen to scroll too far before pausing.
+
+        Scenario:
+        - Screen height is H lines. Pause threshold is H - 1 (upper window height).
+        - Write H lines of text, each exactly filling the screen width.
+        - After the last flush, output_line_count should equal H.
+        """
+        screen = ScreenV4(mock_terminal_adapter, self.event_manager)
+        width = mock_terminal_adapter.width
+        height = mock_terminal_adapter.height
+
+        # Set up a split screen with 1 line upper window so the
+        # pause threshold is height - 1.
+        screen.split_window(1)
+        screen.set_window(WindowPosition.LOWER)
+
+        # Each line exactly fills the screen width with no spaces,
+        # so word wrap doesn't intervene - each flush produces exactly one line.
+        full_line_text = "a" * width
+
+        # Enable pause so output_line_count is actively tracked.
+        screen.pause_enabled = True
+
+        mock_terminal_adapter.get_input_char = MagicMock(return_value=13)
+
+        screen.print('First line', True)
+        screen.print(full_line_text, False)
+        screen.print(' wrap to third line', True)
+
+        # Write enough lines to fill the lower window completely.
+        # The lower window is (height - 1) lines tall after the split.
+        lower_height = height - 1
+        for _ in range(lower_height - 3):
+            screen.print('\n', False)
+
+        screen.flush_buffer(screen.lower_window)
+
+        mock_terminal_adapter.get_input_char.assert_called_with(False)
+        mock_terminal_adapter.get_input_char.assert_called_once()
+
+        expected_line_count = 1
+        assert screen.output_line_count == expected_line_count, (
+            f"Expected output_line_count to be {expected_line_count} after writing "
+            f"{lower_height} full-width lines, but got {screen.output_line_count}. "
+            f"This indicates the line counter is not incrementing when text "
+            f"exactly fills the screen width."
+        )
 
 
 @pytest.mark.unit
