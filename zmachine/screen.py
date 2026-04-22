@@ -10,6 +10,7 @@ class Window:
     def __init__(self, height: int, width: int):
         self.height: int = height
         self.width: int = width
+        # The z-machine uses 1-index for screen coordinates, but the interpreter uses 0-index.
         self.y_pos: int = 0
         self.x_pos: int = 0
         self.y_cursor: int = 0
@@ -324,11 +325,18 @@ class ScreenV4(BaseScreen):
     def set_cursor(self, y_pos: int, x_pos: int) -> None:
         if self.lower_window == self.active_window:
             return
+        if y_pos >= self.height or x_pos >= self.width:
+            raise InvalidScreenOperationException("Cursor moved outside the screen bounds.")
         # NOTE: According to the z-machine standards, it's not allowed to move the
         # cursor outside the bounds of the upper window.
         # This interpreter will allow it, as long as the cursor stays on the screen.
-        if y_pos >= self.height or x_pos >= self.width:
-            raise InvalidScreenOperationException("Cursor moved outside the screen bounds.")
+        # Per the recommendation in 8.7.2.3, the upper window will resize to accommodate.
+        if y_pos >= self.upper_window.height:
+            new_height = y_pos + 1
+            logger.info(f"Cursor moved outside bounds of upper window, resizing upper window from {self.upper_window.height} to {new_height}")
+            self.upper_window.height = new_height
+            self.lower_window.height = self.height - new_height
+            self.lower_window.y_pos = new_height
         self.terminal_adapter.move_cursor(y_pos, x_pos)
         self.upper_window.sync_cursor(y_pos, x_pos)
 

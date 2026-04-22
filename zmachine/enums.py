@@ -1,4 +1,4 @@
-from enum import IntEnum, Enum
+from enum import IntEnum, Enum, auto
 from typing import NamedTuple, Optional
 
 class RoutineType(IntEnum):
@@ -48,11 +48,14 @@ class Cursor(IntEnum):
     RIGHT = 132
 
 class Hotkey(IntEnum):
-    DEBUG = 2000
-    HELP = 2001
-    PLAYBACK = 2002
-    RECORD = 2003
-    SEED = 2004
+    HELP = 729
+    PLAYBACK = 960
+    RECORD = 174
+    SEED = 223
+
+class UIType(IntEnum):
+    TEXT = auto()
+    GRAPHICS = auto()
 
 class TerminalMapping(NamedTuple):
     escape_sequence: tuple[int, ...]
@@ -75,7 +78,6 @@ class TerminalEscape(Enum):
     F10 = TerminalMapping((91, 50, 49, 126), 142)
     F11 = TerminalMapping((91, 50, 51, 126), 143)
     F12 = TerminalMapping((91, 50, 52, 126), 144)
-    DEBUG = TerminalMapping((ord('d'),), Hotkey.DEBUG)
     HELP = TerminalMapping((ord('h'),), Hotkey.HELP)
     PLAYBACK = TerminalMapping((ord('p'),), Hotkey.PLAYBACK)
     RECORD = TerminalMapping((ord('r'),), Hotkey.RECORD)

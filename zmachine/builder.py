@@ -1,5 +1,7 @@
 from .screen import *
+from .enums import UIType
 from .curses import CursesAdapter
+from .graphics import GraphicsAdapter
 from .memory import MemoryMap
 from .event import EventManager
 from .input import InputStreamManager
@@ -10,16 +12,17 @@ from .quetzal import Quetzal
 from .interpreter import ZMachineInterpreter
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
+from .error import ZMachineException
 from .constants import INTERPRETER_NUMBER, INTERPRETER_REVISION
 
 
 class ZMachineBuilder:
-    def __init__(self, game_file: str):
+    def __init__(self, game_file: str, ui_type: UIType = UIType.TEXT):
         config = ZMachineConfig.from_game_file(game_file)
         event_manager = EventManager()
         memory_map = MemoryMap(config)
         runtime_settings = RuntimeSettings(memory_map)
-        terminal_adapter = CursesAdapter(config)
+        terminal_adapter = self._initialize_terminal(ui_type)
         screen = self._initialize_screen(config.version, terminal_adapter, event_manager)
         quetzal = Quetzal(memory_map, terminal_adapter)
         self._initialize_header(memory_map, terminal_adapter, config.version)
@@ -36,6 +39,14 @@ class ZMachineBuilder:
             quetzal, 
             event_manager
             )
+        
+    @staticmethod
+    def _initialize_terminal(ui_type: UIType) -> ITerminalAdapter:
+        if ui_type == UIType.TEXT:
+            return CursesAdapter()
+        if ui_type == UIType.GRAPHICS:
+            return GraphicsAdapter()
+        raise ZMachineException("Unrecognized UI type")
 
     @staticmethod
     def _initialize_screen(version: int, terminal_adapter: ITerminalAdapter, event_manager: EventManager) -> IScreen:
@@ -45,7 +56,7 @@ class ZMachineBuilder:
             return ScreenV4(terminal_adapter, event_manager)
         if version == 5:
             return ScreenV5(terminal_adapter, event_manager)
-        raise Exception("Unrecognized configuration")
+        raise ZMachineException("Unrecognized configuration")
     
     def _initialize_header(self,
                            memory_map: MemoryMap,
