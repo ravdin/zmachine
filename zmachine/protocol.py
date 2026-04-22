@@ -333,10 +333,6 @@ class ITerminalAdapter(Protocol):
         """Get a single input character from the terminal, optionally echoing it to the screen."""
         ...
 
-    def get_escape_sequence(self) -> list[int]:
-        """Get a sequence of input characters from the terminal, returning them as a list of character codes."""
-        ...
-
     def get_input_string(self, prompt: str, lowercase: bool) -> str:
         """Get a string of input from the terminal, optionally converting it to lowercase."""
         ...

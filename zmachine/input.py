@@ -15,18 +15,7 @@ class KeyboardInputParser:
         self.terminal_adapter.set_timeout(timeout_ms)
 
     def get_next_char(self, echo: bool = True) -> int:
-        c = self.terminal_adapter.get_input_char(echo)
-        if c == ESCAPE_CHAR:
-            # Escape sequence.
-            # For special characters (arrows, function keys), the remaining characters
-            # will be in the keyboard input stream.
-            escape_sequence = self.terminal_adapter.get_escape_sequence()
-            terminal_mapping = TerminalEscape.lookup_sequence(tuple(escape_sequence))
-            if terminal_mapping is None:
-                return ESCAPE_CHAR
-            else:
-                return terminal_mapping.zscii_char
-        return c
+        return self.terminal_adapter.get_input_char(echo)
     
     def backspace(self, backspace_chars: int = 1):
         y, x = self.terminal_adapter.get_coordinates()

@@ -1,6 +1,7 @@
 import curses
 import atexit
-from .enums import TextStyle, Color
+from .enums import TextStyle, Color, TerminalMapping, TerminalEscape
+from .constants import ESCAPE_CHAR
 
 
 class CursesAdapter:
@@ -58,6 +59,15 @@ class CursesAdapter:
 
     def get_input_char(self, echo: bool = True) -> int:
         c = self.main_screen.getch()
+        if c == ESCAPE_CHAR:
+            # Escape sequence.
+            # For special characters (arrows, function keys), the remaining characters
+            # will be in the keyboard input stream.
+            escape_sequence = self.get_escape_sequence()
+            terminal_mapping = TerminalEscape.lookup_sequence(tuple(escape_sequence))
+            if terminal_mapping is None:
+                return c
+            return terminal_mapping.zscii_char
         if echo:
             if 32 <= c <= 126:
                 self.main_screen.echochar(c)
