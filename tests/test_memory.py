@@ -50,7 +50,7 @@ class TestMemoryMap:
             memory_map.read_byte(0xFFFFFF)  # Way beyond memory
     
     @pytest.mark.unit
-    def test_reset_dynamic_memory(self, memory_map):
+    def test_reset_dynamic_memory(self, memory_map, test_config):
         """reset_dynamic_memory should restore dynamic memory region."""
         # Modify some dynamic memory
         address = 0x3f
@@ -59,7 +59,7 @@ class TestMemoryMap:
         
         # Save the current state
         current_dynamic = bytearray()
-        for addr in range(0, memory_map.static_memory_base_addr):
+        for addr in range(0, test_config.static_memory_base_addr):
             current_dynamic.append(memory_map.read_byte(addr))
         
         # Reset should restore to original

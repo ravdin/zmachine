@@ -1,6 +1,6 @@
 from .error import InvalidScreenOperationException
 from .event import EventManager, EventArgs
-from .enums import WindowPosition, TextStyle
+from .enums import WindowPosition, TextStyle, FontEnum
 from .protocol import ITerminalAdapter
 from .logging import screen_logger as logger
 from .constants import SUPPORTED_VERSIONS, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
@@ -10,6 +10,7 @@ class Window:
     def __init__(self, height: int, width: int):
         self.height: int = height
         self.width: int = width
+        # The z-machine uses 1-index for screen coordinates, but the interpreter uses 0-index.
         self.y_pos: int = 0
         self.x_pos: int = 0
         self.y_cursor: int = 0
@@ -17,6 +18,7 @@ class Window:
         self.style_attributes: int = 0
         self.background_color: int = DEFAULT_BACKGROUND_COLOR
         self.foreground_color: int = DEFAULT_FOREGROUND_COLOR
+        self.font: FontEnum = FontEnum.DEFAULT
 
     def sync_cursor(self, y_pos: int, x_pos: int):
         self.y_cursor, self.x_cursor = y_pos, x_pos
@@ -57,7 +59,7 @@ class BaseScreen:
         return self._pause_enabled
     
     @pause_enabled.setter
-    def pause_enabled(self, value: bool) -> None:
+    def pause_enabled(self, value: bool):
         self._pause_enabled = value
 
     @property
@@ -65,7 +67,7 @@ class BaseScreen:
         return self._buffer_mode
     
     @buffer_mode.setter
-    def buffer_mode(self, value: bool) -> None:
+    def buffer_mode(self, value: bool):
         logger.info(f"Setting buffer mode to {value}")
         self._buffer_mode = value
         if not value:
@@ -80,7 +82,7 @@ class BaseScreen:
         else:
             raise InvalidScreenOperationException("Active window is not set to a valid window.")
 
-    def reset_output_line_count(self) -> None:
+    def reset_output_line_count(self):
         self.output_line_count = 0
 
     def pre_read_input_handler(self, sender, event_args: EventArgs):
@@ -88,10 +90,10 @@ class BaseScreen:
         self.flush_buffer(self.active_window)
         self.terminal_adapter.refresh()
 
-    def refresh_status_line(self, location: str, status: str) -> None:
+    def refresh_status_line(self, location: str, status: str):
         raise NotImplementedError(f"Status line is not implemented in v{self.version} screen.")
         
-    def set_window(self, window_id: int) -> None:
+    def set_window(self, window_id: int):
         logger.info(f"Setting active window to {window_id}")
         if window_id == WindowPosition.LOWER:
             self.set_active_window(self.lower_window)
@@ -101,7 +103,7 @@ class BaseScreen:
         else:
             raise InvalidScreenOperationException("Invalid window ID.")
         
-    def split_window(self, lines: int) -> None: 
+    def split_window(self, lines: int): 
         logger.info(f"Splitting window at line {lines}")
         self.flush_buffer(self.lower_window)
         self.active_window.sync_cursor(*self.terminal_adapter.get_coordinates())
@@ -120,7 +122,7 @@ class BaseScreen:
         self.terminal_adapter.set_scrollable_height(lower_window_y)
         self.terminal_adapter.refresh()
 
-    def erase_window(self, window_id: int) -> None: 
+    def erase_window(self, window_id: int): 
         self.flush_buffer(self.lower_window)
         if window_id == -2:
             self.terminal_adapter.erase_screen()
@@ -138,19 +140,22 @@ class BaseScreen:
         self.terminal_adapter.move_cursor(self.active_window.y_cursor, self.active_window.x_cursor)
         self.terminal_adapter.refresh()
 
-    def sound_effect(self, type: int) -> None: 
-        self.terminal_adapter.sound_effect(type)
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int): 
+        self.terminal_adapter.sound_effect(number, effect, volume, repeats, routine)
 
-    def set_cursor(self, y_pos: int, x_pos: int) -> None:
+    def set_cursor(self, y_pos: int, x_pos: int):
         raise NotImplementedError(f"Set cursor is not implemented in v{self.version} screen.")
 
-    def set_text_style(self, style: int) -> None:
+    def set_text_style(self, style: int):
         raise NotImplementedError(f"Text style is not implemented in v{self.version} screen.")
 
-    def set_color(self, background_color: int, foreground_color: int) -> None:
+    def set_color(self, background_color: int, foreground_color: int):
         raise NotImplementedError(f"Set color is not implemented in v{self.version} screen.")
 
-    def print_table(self, table: list[str]) -> None:
+    def set_font(self, font_id: int) -> int:
+        raise NotImplementedError(f"Set font is not implemented in v{self.version} screen.")
+
+    def print_table(self, table: list[str]):
         raise NotImplementedError(f"Print table is not implemented in v{self.version} screen.")
 
     def on_select_output_stream_handler(self, sender, e: EventArgs):
@@ -172,14 +177,14 @@ class BaseScreen:
 
     def write_to_active_window(self, text: str, newline: bool = False):
         self.flush_buffer(self.active_window)
-        self.apply_text_style_attributes(self.active_window)
+        self.apply_text_settings(self.active_window)
         self.terminal_adapter.write_to_screen(text)
         if newline:
             self.terminal_adapter.write_to_screen("\n")
         self.terminal_adapter.refresh()
 
-    def apply_text_style_attributes(self, window: Window):
-        self.terminal_adapter.apply_style_attributes(window.style_attributes)
+    def apply_text_settings(self, window: Window):
+        pass
 
     def reset_cursor(self, window: Window):
         if window == self.upper_window:
@@ -188,10 +193,12 @@ class BaseScreen:
             window.y_cursor, window.x_cursor = self.height - 1, 0
 
     def set_active_window(self, window: Window):
+        if window == self.active_window:
+            return
         self.active_window.sync_cursor(*self.terminal_adapter.get_coordinates())
         self.active_window = window
         self.terminal_adapter.move_cursor(window.y_cursor, window.x_cursor)
-        self.apply_text_style_attributes(window)
+        self.apply_text_settings(window)
 
     def erase(self, window: Window):
         self.terminal_adapter.erase_window(window.y_pos, window.height)
@@ -215,9 +222,10 @@ class BaseScreen:
         text = ''.join(self.text_buffer[:self.text_buffer_ptr])
         self.text_buffer_ptr = 0
         active_window = self.active_window
-        self.set_active_window(window)
+        if window != active_window:
+            self.set_active_window(window)
         output_lines = self.wrap_lines(text)
-        self.terminal_adapter.apply_style_attributes(self.active_window.style_attributes)
+        self.apply_text_settings(self.active_window)
         for line in output_lines:
             self.terminal_adapter.write_to_screen(line)
             if self.terminal_adapter.get_coordinates()[1] == 0:
@@ -231,10 +239,15 @@ class BaseScreen:
                 self.output_line_count = 0
         self.set_active_window(active_window)
 
-    def wrap_lines(self, text):
-        result = []
+    def wrap_lines(self, text: str) -> list[str]:
+        result: list[str] = []
+        if len(text) == 0:
+            return result
         text_pos = 0
-        y, x = self.terminal_adapter.get_coordinates()
+        _, x = self.terminal_adapter.get_coordinates()
+        if x == 0 and text[0] == ' ' and self.terminal_adapter.at_wrap_boundary:
+            text_pos = 1
+
         while text_pos < len(text):
             line = text[text_pos:]
             line_break = text.find("\n", text_pos)
@@ -249,9 +262,11 @@ class BaseScreen:
             else:
                 output_line = ''
                 linepos = 0
-                while line[linepos] == ' ':
-                    if x <= self.width:
-                        output_line += ' '
+                while linepos < len(line) and line[linepos] == ' ':
+                    if x >= self.width:
+                        linepos += 1
+                        continue
+                    output_line += ' '
                     linepos += 1
                     x += 1
                 words = line[linepos:].split(' ')
@@ -271,9 +286,10 @@ class BaseScreen:
                         output_line = ''
                     else:
                         separator = ' '
-                if len(output_line) > 0 and output_line[-1] == '\n':
-                    x = 0
-                result += [output_line]
+                if len(output_line) > 0:
+                    result += [output_line]
+                    if output_line[-1] == '\n':
+                        x = 0
         return result
 
 
@@ -302,7 +318,7 @@ class ScreenV3(BaseScreen):
         elif window == self.lower_window:
             window.y_cursor, window.x_cursor = self.height - 1, 0
 
-    def refresh_status_line(self, location: str, status: str) -> None:
+    def refresh_status_line(self, location: str, status: str):
         y, x = self.terminal_adapter.get_coordinates()
         self.terminal_adapter.move_cursor(0, 0)
         self.terminal_adapter.apply_style_attributes(TextStyle.REVERSE)
@@ -321,18 +337,28 @@ class ScreenV4(BaseScreen):
         self._version = 4
         self.reset_cursor(self.lower_window)
 
-    def set_cursor(self, y_pos: int, x_pos: int) -> None:
+    def apply_text_settings(self, window: Window):
+        self.terminal_adapter.apply_style_attributes(window.style_attributes)
+
+    def set_cursor(self, y_pos: int, x_pos: int):
         if self.lower_window == self.active_window:
             return
+        if y_pos >= self.height or x_pos >= self.width:
+            raise InvalidScreenOperationException("Cursor moved outside the screen bounds.")
         # NOTE: According to the z-machine standards, it's not allowed to move the
         # cursor outside the bounds of the upper window.
         # This interpreter will allow it, as long as the cursor stays on the screen.
-        if y_pos >= self.height or x_pos >= self.width:
-            raise InvalidScreenOperationException("Cursor moved outside the screen bounds.")
+        # Per the recommendation in 8.7.2.3, the upper window will resize to accommodate.
+        if y_pos >= self.upper_window.height:
+            new_height = y_pos + 1
+            logger.info(f"Cursor moved outside bounds of upper window, resizing upper window from {self.upper_window.height} to {new_height}")
+            self.upper_window.height = new_height
+            self.lower_window.height = self.height - new_height
+            self.lower_window.y_pos = new_height
         self.terminal_adapter.move_cursor(y_pos, x_pos)
         self.upper_window.sync_cursor(y_pos, x_pos)
 
-    def set_text_style(self, style: int) -> None:
+    def set_text_style(self, style: int):
         logger.info(f"Setting text style to {style}")
         self.flush_buffer(self.active_window)
         if style == TextStyle.ROMAN:
@@ -346,12 +372,14 @@ class ScreenV5(ScreenV4):
         super().__init__(terminal_adapter, event_manager)
         self._version = 5
 
-    def set_active_window(self, window: Window):
-        super().set_active_window(window)
-        self.set_color(window.background_color, window.foreground_color)
+    def apply_text_settings(self, window: Window):
+        super().apply_text_settings(window)
+        self.terminal_adapter.apply_color_settings(window.background_color, window.foreground_color)
+        self.terminal_adapter.apply_font(window.font)
 
-    def set_color(self, background_color: int, foreground_color: int) -> None:
+    def set_color(self, background_color: int, foreground_color: int):
         active_window = self.active_window
+        self.flush_buffer(active_window)
         if background_color == 0:
             background_color = active_window.background_color
         elif background_color == 1:
@@ -360,11 +388,23 @@ class ScreenV5(ScreenV4):
             foreground_color = active_window.foreground_color
         elif foreground_color == 1:
             foreground_color = DEFAULT_FOREGROUND_COLOR
-        self.terminal_adapter.set_color(background_color, foreground_color)
+        self.terminal_adapter.apply_color_settings(background_color, foreground_color)
         active_window.background_color = background_color
         active_window.foreground_color = foreground_color
 
-    def print_table(self, table: list[str]) -> None:
+    def set_font(self, font_id: int) -> int:
+        previous_font = self.active_window.font
+        if font_id != 0:
+            if self.terminal_adapter.is_font_supported(font_id):
+                new_font = FontEnum(font_id)
+                if new_font != previous_font:
+                    self.flush_buffer(self.active_window)
+                    self.active_window.font = new_font
+            else:
+                return 0
+        return int(previous_font)
+
+    def print_table(self, table: list[str]):
         self.flush_buffer(self.active_window)
         y, x = self.terminal_adapter.get_coordinates()
         for row in table:
@@ -372,7 +412,7 @@ class ScreenV5(ScreenV4):
             self.print(row, False)
             y += 1
 
-    def erase_window(self, window_id: int) -> None:
+    def erase_window(self, window_id: int):
         self.lower_window.style_attributes = TextStyle.ROMAN
         super().erase_window(window_id)
 

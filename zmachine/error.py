@@ -53,3 +53,13 @@ class StreamException(ZMachineException):
 class VariableOutOfRangeException(ZMachineException):
     def __init__(self, varnum: int):
         super().__init__(f"Variable reference out of range: {varnum}")
+
+
+class InvalidBlorbFileException(ZMachineException):
+    def __init__(self, filename: str):
+        super().__init__(f'"{filename}" is not a valid blorb file')
+
+
+class UnsupportedExecutableResourceException(ZMachineException):
+    def __init__(self, chunk_type: bytes):
+        super().__init__(f'"{chunk_type!r}" is not a supported executable resource')

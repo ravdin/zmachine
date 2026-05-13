@@ -311,7 +311,7 @@ class TestTypeValidation:
     
     @pytest.mark.regression
     def test_restore_returns_false_on_any_error(
-        self, memory_map, mock_terminal_adapter, tmp_path
+        self, memory_map, test_config, mock_terminal_adapter, tmp_path
     ):
         """
         Comprehensive test that restore returns false on error conditions.
@@ -319,7 +319,7 @@ class TestTypeValidation:
         from zmachine.quetzal import Quetzal
         from zmachine.stack import CallStack
         
-        quetzal = Quetzal(memory_map, mock_terminal_adapter)
+        quetzal = Quetzal(memory_map, test_config, mock_terminal_adapter)
         quetzal.game_file = str(tmp_path / "test.z5")
         call_stack = CallStack()
         

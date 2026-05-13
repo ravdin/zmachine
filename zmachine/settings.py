@@ -7,6 +7,10 @@ class RuntimeSettings:
         self.memory_map = memory_map
 
     @property
+    def mouse_enabled(self) -> bool:
+        return self.memory_map.read_word(0x10) & 0x20 == 0x20
+
+    @property
     def transcript_active_flag(self) -> bool:
         # This flag is the single source of truth of whether the transcript stream is open or not.
         # It can be set with the output_stream opcode or directly by the game.

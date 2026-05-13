@@ -3,7 +3,7 @@ from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .memory import MemoryMap
 from .object_table import ObjectTable
-from .event import EventArgs, EventManager
+from .event import EventArgs, EventManager, MouseClickEventArgs, RoutineCallEventArgs
 from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
 from .undo import UndoStack
@@ -22,8 +22,7 @@ class ZMachineInterpreter:
                  input_source: IInputSource,
                  output_manager: IOutputStreamManager,
                  quetzal: IQuetzal,
-                 event_manager: EventManager, 
-                 debug: bool = False):
+                 event_manager: EventManager):
         self.memory_map = memory_map
         self.config = config
         self.runtime_settings = runtime_settings
@@ -32,9 +31,9 @@ class ZMachineInterpreter:
         self.output_manager = output_manager
         self.event_manager = event_manager
         self.pc = self.config.initial_pc
-        self.text_utils = TextUtils(memory_map)
+        self.text_utils = TextUtils(memory_map, config)
         self.quetzal = quetzal
-        self._object_table = ObjectTable(memory_map)
+        self._object_table = ObjectTable(memory_map, config)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
         self.call_stack = CallStack()
@@ -44,6 +43,11 @@ class ZMachineInterpreter:
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
             self.event_manager.pre_read_input += self.pre_read_input_handler
+        if self.version >= 5 and runtime_settings.mouse_enabled:
+            # NOTE: the mouse click handler is a bit more defensive than the direct routine
+            # handler as the result is to write to dynamic memory.
+            self.event_manager.on_mouse_click += self.on_mouse_click_handler
+        self.event_manager.on_routine_call += self.on_routine_call_handler
 
     @property
     def version(self) -> int:
@@ -77,6 +81,15 @@ class ZMachineInterpreter:
 
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
+
+    def on_mouse_click_handler(self, sender, e: MouseClickEventArgs):
+        if self.config.header_extension_addr == 0:
+            return
+        self.memory_map.write_word(self.config.header_extension_addr + 2, e.x_coordinate + 1)
+        self.memory_map.write_word(self.config.header_extension_addr + 4, e.y_coordinate + 1)
+
+    def on_routine_call_handler(self, sender, e: RoutineCallEventArgs):
+        self.do_direct_call(e.routine_addr)
 
     def do_show_status(self):
         # In later versions, treat as a nop.
@@ -235,16 +248,23 @@ class ZMachineInterpreter:
             raise UnrecognizedOpcodeException(opcode_number, instruction_ptr)
 
     @staticmethod
-    def sign_uint14(num):
+    def sign_uint14(num: int) -> int:
         # For branch offsets
         if num >= 0x2000:
             num = -(~num & 0x3fff) - 1
         return num
 
     @staticmethod
-    def sign_uint16(num):
+    def sign_uint16(num: int) -> int:
         if num >= 0x8000:
             num = -(~num & 0xffff) - 1
+        return num
+    
+    @staticmethod
+    def sign_uint8(num: int) -> int:
+        # For sound effect arguments (volume and repeat may be negative)
+        if num >= 0x80:
+            num = -(~num & 0xff) - 1
         return num
 
     def read_from_pc(self, num_bytes=1):
@@ -319,15 +339,15 @@ class ZMachineInterpreter:
         else:
             raise VariableOutOfRangeException(varnum)
 
-    def do_routine(self, call_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
+    def do_routine(self, routine_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
         store_varnum = 0
         if routine_type == RoutineType.STORE:
             store_varnum = self.read_from_pc()
         return_pc = self.pc
-        self.pc = call_addr
+        self.pc = routine_addr
         num_locals = self.read_from_pc()
         if num_locals > 15:
-            raise InvalidMemoryException('Invalid call to address {0:x}'.format(call_addr))
+            raise InvalidMemoryException('Invalid call to address {0:x}'.format(routine_addr))
         local_vars = [0] * num_locals
         for i in range(num_locals):
             local = 0
@@ -355,14 +375,14 @@ class ZMachineInterpreter:
         elif routine_type == RoutineType.DIRECT_CALL:
             self.stack_push(retval)
 
-    def do_direct_call(self, call_addr: int) -> int:
+    def do_direct_call(self, routine_addr: int) -> int:
         """
         Make a direct call to a routine.
         """
-        if call_addr == 0:
+        if routine_addr == 0:
             return True
         frame_id = self.call_stack.catch()
-        self.do_routine(call_addr, (), RoutineType.DIRECT_CALL)
+        self.do_routine(routine_addr, (), RoutineType.DIRECT_CALL)
         while self.call_stack.catch() > frame_id:
             self.run_instruction()
         if self.call_stack.catch() != frame_id:
@@ -403,7 +423,7 @@ class ZMachineInterpreter:
 
     def do_read(self, text_buffer_addr: int, parse_buffer_addr: int, time: int = 0, routine: int = 0):
         timeout_ms = time * 100
-        call_addr = self.unpack_addr(routine)
+        interrupt_routine_addr = self.unpack_addr(routine)
         max_text_buffer_size = self.read_byte(text_buffer_addr)
         if max_text_buffer_size < 3:
             raise Exception("Fatal error: text buffer length less than 3")
@@ -420,7 +440,7 @@ class ZMachineInterpreter:
         self.input_source.read_input(timeout_ms=timeout_ms,
                                      text_buffer=self.text_buffer,
                                      interrupt_routine_caller=self.do_direct_call,
-                                     interrupt_routine_addr=call_addr,
+                                     interrupt_routine_addr=interrupt_routine_addr,
                                      echo=True)
         # For version 4 or lower, write the characters from the input buffer (without the
         # terminating character) from byte 1 onwards in the text buffer, followed by a 0 byte.
@@ -533,11 +553,23 @@ class ZMachineInterpreter:
                 self.output_manager.memory_stream.close()
         self.event_manager.on_select_output_stream.invoke(self, EventArgs())
 
-    def do_sound_effect(self, type):
-        self.screen.sound_effect(type)
+    def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
+        volume_level = self.sign_uint8(volume & 0xff)
+        repeats = 0 if self.version <= 3 else self.sign_uint8(volume >> 8)
+        callback_addr = self.unpack_addr(routine)
+        if number >= 3 and repeats == 0 and self.version >= 5:
+            # Per the notes for the sound_effect opcode: setting repeats to 0 is illegal
+            # in V5. This interpreter will treat as a request to play the sound once.
+            logger.warning("Repeats set to 0 for V5 sound effect- interpreter setting repeats to 1")
+            repeats = 1
+        self.screen.sound_effect(number, effect, volume_level, repeats, callback_addr)
 
     def do_set_color(self, foreground_color: int, background_color: int):
         self.screen.set_color(background_color, foreground_color)
+
+    def do_set_font(self, font_id: int):
+        store_val = self.screen.set_font(font_id)
+        self.do_store(store_val)
 
     def write_to_output_streams(self, text, newline=False):
         self.output_manager.write_to_streams(text, newline)

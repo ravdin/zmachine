@@ -1,5 +1,8 @@
+from pathlib import Path
 from dataclasses import dataclass, field
-from .constants import SUPPORTED_VERSIONS
+from .constants import SUPPORTED_VERSIONS, STORY_VERSIONS
+from .enums import StoryEnum
+from .blorb import BlorbFile
 from .error import InvalidGameFileException
 
 @dataclass(frozen=True)
@@ -8,6 +11,8 @@ class ZMachineConfig:
 
     game_file: str
     """ Path to the game file."""
+    blorb_file_path: str = ''
+    """Path to a blorb resource file, if available."""
 
     # Header values
     version: int = 0
@@ -36,6 +41,11 @@ class ZMachineConfig:
     """ Checksum of the game file, used for copy protection. """
     interrupt_zchars: tuple[int, ...] = field(default_factory=tuple)
     """ Terminating characters (version 5 and above)"""
+    alphabet_table_addr: int = 0
+    """Address of a game provided alphabet table (version 5 and above)"""
+    header_extension_addr: int = 0
+    """Address of the header extension table (version 5 and above)"""
+    story: StoryEnum = StoryEnum.UNKNOWN
 
     @classmethod
     def from_game_file(cls, game_file: str) -> 'ZMachineConfig':
@@ -46,7 +56,10 @@ class ZMachineConfig:
             if 0 < version <= 6:
                 raise InvalidGameFileException(f"Unsupported Z-Machine version: v{version}")
             else:
-                raise InvalidGameFileException(f"Unrecognized Z-Machine file")    
+                raise InvalidGameFileException(f"Unrecognized Z-Machine file") 
+
+        game_file_path = Path(game_file).parent
+        blorb_file_path, _ = BlorbFile.detect_blorb_file(str(game_file_path))
 
         release_number = game_data[0x2:0x4]
         high_memory_base_addr = int.from_bytes(game_data[0x4:0x6], "big")
@@ -60,6 +73,9 @@ class ZMachineConfig:
         file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2)
         checksum = int.from_bytes(game_data[0x1c:0x1e], "big")
         interrupt_zchars: list[int] = []
+        alphabet_table_addr = 0
+        header_extension_addr = 0
+        story = STORY_VERSIONS.get((int.from_bytes(release_number, "big"), serial_number), StoryEnum.UNKNOWN)
         if version >= 5:
             zchars_addr = int.from_bytes(game_data[0x2e:0x30], "big")
             zchar = game_data[zchars_addr]
@@ -67,9 +83,12 @@ class ZMachineConfig:
                 interrupt_zchars += [zchar]
                 zchars_addr += 1
                 zchar = game_data[zchars_addr]
+            alphabet_table_addr = int.from_bytes(game_data[0x34:0x36], "big")
+            header_extension_addr = int.from_bytes(game_data[0x36:0x38], "big")
 
         return cls(
             game_file = game_file,
+            blorb_file_path = blorb_file_path,
             version = version,
             release_number = release_number,
             high_memory_base_addr = high_memory_base_addr,
@@ -82,6 +101,9 @@ class ZMachineConfig:
             abbreviation_table_addr = abbreviation_table_addr,
             file_length = file_length,
             checksum = checksum,
-            interrupt_zchars = tuple(interrupt_zchars)
+            interrupt_zchars = tuple(interrupt_zchars),
+            alphabet_table_addr = alphabet_table_addr,
+            header_extension_addr = header_extension_addr,
+            story = story
         )
     

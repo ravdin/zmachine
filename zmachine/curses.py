@@ -1,7 +1,7 @@
 import curses
 import atexit
-from .enums import TextStyle, Color
-from .config import ZMachineConfig
+from .enums import TextStyle, Color, FontEnum, TerminalEscape
+from .constants import ESCAPE_CHAR
 
 
 class CursesAdapter:
@@ -24,12 +24,11 @@ class CursesAdapter:
     }
     CURSES_COLORS = {v: k for k, v in COLORS.items()}
 
-    def __init__(self, config: ZMachineConfig):
+    def __init__(self):
         super().__init__()
         self.main_screen = curses.initscr()
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
-        self.config = config
         self._initialize_curses()
         atexit.register(self.shutdown)
 
@@ -50,6 +49,11 @@ class CursesAdapter:
     @property
     def width(self) -> int:
         return curses.COLS
+    
+    @property
+    def at_wrap_boundary(self) -> bool:
+        # Curses handles moving the cursor at the edge of the screen.
+        return False
 
     def refresh(self):
         self.main_screen.refresh()
@@ -60,6 +64,15 @@ class CursesAdapter:
 
     def get_input_char(self, echo: bool = True) -> int:
         c = self.main_screen.getch()
+        if c == ESCAPE_CHAR:
+            # Escape sequence.
+            # For special characters (arrows, function keys), the remaining characters
+            # will be in the keyboard input stream.
+            escape_sequence = self.get_escape_sequence()
+            terminal_mapping = TerminalEscape.lookup_sequence(tuple(escape_sequence))
+            if terminal_mapping is None:
+                return c
+            return terminal_mapping.zscii_char
         if echo:
             if 32 <= c <= 126:
                 self.main_screen.echochar(c)
@@ -125,7 +138,7 @@ class CursesAdapter:
             else:
                 self.main_screen.attroff(v)
 
-    def set_color(self, background_color: int, foreground_color: int):
+    def apply_color_settings(self, background_color: int, foreground_color: int):
         pair_number = self.color_pairs[background_color][foreground_color]
         if pair_number == 0:
             curses.init_pair(
@@ -138,6 +151,14 @@ class CursesAdapter:
             self.color_pair_index += 1
         color_pair = curses.color_pair(pair_number)
         self.main_screen.attron(color_pair)
+
+    def is_font_supported(self, font_id: int) -> bool:
+        """Multiple fonts are not supported in curses, always returns False."""
+        return False
+
+    def apply_font(self, font: FontEnum):
+        """Multiple fonts are not supported, treat as a nop if called."""
+        pass
 
     def set_scrollable_height(self, top: int):
         if top == self.height - 1:
@@ -152,8 +173,9 @@ class CursesAdapter:
         curses.noecho()
         curses.cbreak()
 
-    def sound_effect(self, sound_type: int):
-        if sound_type == 1:
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+        # Curses does not support sound effects other than a terminal beep.
+        if number in (1, 2):
             curses.beep()
 
     def shutdown(self):

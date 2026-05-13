@@ -13,6 +13,16 @@ class PostReadInputEventArgs(EventArgs):
     terminating_char: int
 
 
+@dataclass
+class MouseClickEventArgs(EventArgs):
+    x_coordinate: int
+    y_coordinate: int
+
+@dataclass
+class RoutineCallEventArgs(EventArgs):
+    routine_addr: int
+
+
 class Event[T: EventArgs]:
     def __init__(self):
         self.delegates: List[Callable[[Any, T], None]] = []
@@ -40,5 +50,9 @@ class EventManager():
         self.pre_read_input = Event[EventArgs]()
         # The user has entered input to be read by the parser.
         self.post_read_input = Event[PostReadInputEventArgs]()
+        # Raised on a mouse click.
+        self.on_mouse_click = Event[MouseClickEventArgs]()
+        # Raised when a sound effect has been played (but not interrupted)
+        self.on_routine_call = Event[RoutineCallEventArgs]()
         # Raised when quitting the game.
         self.on_quit = Event[EventArgs]()
