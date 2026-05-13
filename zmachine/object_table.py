@@ -1,13 +1,14 @@
 from .memory import MemoryMap
+from .config import ZMachineConfig
 from .error import *
 
 
 class ObjectTable:
-    def __init__(self, memory_map: MemoryMap):
+    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig):
         self.memory_map = memory_map
-        self.config = memory_map.config
-        self.version = self.config.version
-        self.OBJECT_TABLE = self.config.object_table_addr
+        self.config = config
+        self.version = config.version
+        self.OBJECT_TABLE_ADDR = config.object_table_addr
         self.PROPERTY_DEFAULTS_LENGTH = 31 if self.version <= 3 else 63
         self.OBJECT_BYTES = 9 if self.version <= 3 else 14
         self.MAX_OBJECTS = 0xff if self.version <= 3 else 0xffff
@@ -34,7 +35,7 @@ class ObjectTable:
     def get_obj_addr(self, obj_id: int) -> int:
         if obj_id <= 0 or obj_id > self.MAX_OBJECTS:
             raise InvalidMemoryException(f"Object ID '{obj_id}' out of range")
-        obj_addr = self.OBJECT_TABLE + \
+        obj_addr = self.OBJECT_TABLE_ADDR + \
             self.PROPERTY_DEFAULTS_LENGTH * 2 + \
             self.OBJECT_BYTES * (obj_id - 1)
         # HACK: Beyond Zork was shipped with a bug where the dictionary entry for an object
@@ -146,7 +147,7 @@ class ObjectTable:
     def get_default_property_data(self, prop_id: int) -> int:
         if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
             raise InvalidArgumentException(f"property id: {prop_id}")
-        return self.read_word(self.OBJECT_TABLE + (prop_id - 1) * 2)
+        return self.read_word(self.OBJECT_TABLE_ADDR + (prop_id - 1) * 2)
 
     def get_property_num(self, prop_addr: int) -> int:
         size_byte = self.read_byte(prop_addr - 1)

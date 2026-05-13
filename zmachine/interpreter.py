@@ -3,7 +3,7 @@ from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .memory import MemoryMap
 from .object_table import ObjectTable
-from .event import EventArgs, EventManager
+from .event import EventArgs, EventManager, MouseClickEventArgs
 from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
 from .undo import UndoStack
@@ -22,8 +22,7 @@ class ZMachineInterpreter:
                  input_source: IInputSource,
                  output_manager: IOutputStreamManager,
                  quetzal: IQuetzal,
-                 event_manager: EventManager, 
-                 debug: bool = False):
+                 event_manager: EventManager):
         self.memory_map = memory_map
         self.config = config
         self.runtime_settings = runtime_settings
@@ -32,9 +31,9 @@ class ZMachineInterpreter:
         self.output_manager = output_manager
         self.event_manager = event_manager
         self.pc = self.config.initial_pc
-        self.text_utils = TextUtils(memory_map)
+        self.text_utils = TextUtils(memory_map, config)
         self.quetzal = quetzal
-        self._object_table = ObjectTable(memory_map)
+        self._object_table = ObjectTable(memory_map, config)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
         self.call_stack = CallStack()
@@ -44,6 +43,8 @@ class ZMachineInterpreter:
         if self.version <= 3:
             self.status_line_type = (self.read_byte(0x1) & 0x2) >> 1
             self.event_manager.pre_read_input += self.pre_read_input_handler
+        if self.version >= 5 and runtime_settings.mouse_enabled:
+            self.event_manager.on_mouse_click += self.on_mouse_click_handler
 
     @property
     def version(self) -> int:
@@ -77,6 +78,12 @@ class ZMachineInterpreter:
 
     def pre_read_input_handler(self, sender, e: EventArgs):
         self.do_show_status()
+
+    def on_mouse_click_handler(self, sender, e: MouseClickEventArgs):
+        if self.config.header_extension_addr == 0:
+            return
+        self.memory_map.write_word(self.config.header_extension_addr + 2, e.x_coordinate + 1)
+        self.memory_map.write_word(self.config.header_extension_addr + 4, e.y_coordinate + 1)
 
     def do_show_status(self):
         # In later versions, treat as a nop.
@@ -538,6 +545,10 @@ class ZMachineInterpreter:
 
     def do_set_color(self, foreground_color: int, background_color: int):
         self.screen.set_color(background_color, foreground_color)
+
+    def do_set_font(self, font_id: int):
+        store_val = self.screen.set_font(font_id)
+        self.do_store(store_val)
 
     def write_to_output_streams(self, text, newline=False):
         self.output_manager.write_to_streams(text, newline)

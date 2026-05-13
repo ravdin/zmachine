@@ -1,9 +1,8 @@
 import os
 from enum import Enum
-from typing import BinaryIO, Protocol, runtime_checkable
-
-from zmachine.stack import CallStack
+from typing import BinaryIO
 from .memory import MemoryMap
+from .config import ZMachineConfig
 from .constants import IFF_HEADER, IFZS_ID
 from .protocol import ITerminalAdapter, ISerializable
 from .logging import quetzal_logger
@@ -15,8 +14,8 @@ class IffType(Enum):
     
 
 class Quetzal:
-    def __init__(self, memory_map: MemoryMap, terminal_adapter: ITerminalAdapter):
-        self.config = memory_map.config
+    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig, terminal_adapter: ITerminalAdapter):
+        self.config = config
         self.memory_map = memory_map
         self.terminal_adapter = terminal_adapter
         self.game_file = self.config.game_file
@@ -126,7 +125,7 @@ class Quetzal:
     # write a zero byte followed by the number of zero bytes (i.e. the number
     # of bytes we can skip when restoring the dynamic memory).
     # Otherwise, write the result of the exclusive or.
-    def compress_dynamic_memory(self) -> bytearray:
+    def compress_dynamic_memory(self) -> bytes:
         static_mem_ptr = self.config.static_memory_base_addr
         result = [0] * static_mem_ptr
         result_ptr = 0
@@ -146,9 +145,9 @@ class Quetzal:
                     result_ptr += 2
                 result[result_ptr] = val
                 result_ptr += 1
-        return bytearray(result[:result_ptr])
+        return bytes(result[:result_ptr])
 
-    def uncompress_dynamic_memory(self, encoded_memory) -> bytearray:
+    def uncompress_dynamic_memory(self, encoded_memory) -> bytes:
         static_mem_ptr = self.config.static_memory_base_addr
         with open(self.game_file, 'rb') as s:
             dynamic_mem = bytearray(s.read(static_mem_ptr))
@@ -200,7 +199,7 @@ class IffChunk:
         return cls(IffType(header), data)
 
     def write(self, stream: BinaryIO):
-        header_bytes = bytearray([ord(c) for c in self.header])
+        header_bytes = bytes([ord(c) for c in self.header])
         bytes_written = stream.write(header_bytes)
         if bytes_written < 4:
             stream.write(b'\x00' * (4 - bytes_written))

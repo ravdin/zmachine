@@ -1,5 +1,5 @@
 from typing import Protocol, Callable, runtime_checkable
-from .enums import WindowPosition, RoutineType
+from .enums import WindowPosition, RoutineType, FontEnum
 
 @runtime_checkable
 class ISerializable(Protocol):
@@ -224,6 +224,9 @@ class IZMachineInterpreter(Protocol):
     def do_set_color(self, foreground_color: int, background_color: int):
         ...
 
+    def do_set_font(self, font_id: int):
+        ...
+
 @runtime_checkable
 class IScreen(Protocol):
     """
@@ -238,7 +241,7 @@ class IScreen(Protocol):
         ...
 
     @buffer_mode.setter
-    def buffer_mode(self, value: bool) -> None:
+    def buffer_mode(self, value: bool):
         """Set the screen's buffered mode."""
         ...
 
@@ -248,7 +251,7 @@ class IScreen(Protocol):
         ...
 
     @pause_enabled.setter
-    def pause_enabled(self, value: bool) -> None:
+    def pause_enabled(self, value: bool):
         """Set whether the screen should pause after printing a full page of text."""
         ...
 
@@ -257,48 +260,52 @@ class IScreen(Protocol):
         """The currently active window."""
         ...
 
-    def refresh_status_line(self, location: str, status: str) -> None:
+    def refresh_status_line(self, location: str, status: str):
         """Refresh the status line with the given text (v3 only)."""
         ...
 
-    def print(self, text: str, newline: bool = False) -> None: 
+    def print(self, text: str, newline: bool = False): 
         """Print text to the active window."""
         ...
 
-    def reset_output_line_count(self) -> None:
+    def reset_output_line_count(self):
         """Reset the count of output lines printed since the last read or pause."""
         ...
         
-    def set_window(self, window_id: int) -> None:
+    def set_window(self, window_id: int):
         """Set the active window."""
         ...
         
-    def split_window(self, lines: int) -> None: 
+    def split_window(self, lines: int): 
         """Split screen with the upper window of given height."""
         ...
 
-    def erase_window(self, window_id: int) -> None: 
+    def erase_window(self, window_id: int): 
         """Erase the contents of the specified window.
         If -1, unsplit the screen and erase the entire display, if -2, erase the screen without unsplitting."""
         ...
 
-    def sound_effect(self, type: int) -> None: 
+    def sound_effect(self, type: int): 
         """Play a sound effect of the specified type."""
         ...
 
-    def set_cursor(self, y_pos: int, x_pos: int) -> None:
+    def set_cursor(self, y_pos: int, x_pos: int):
         """Set the cursor position."""
         ...
 
-    def set_text_style(self, style: int) -> None:
+    def set_text_style(self, style: int):
         """Set the text style (reverse background, underline, bold)."""
         ...
 
-    def set_color(self, background_color: int, foreground_color: int) -> None:
+    def set_color(self, background_color: int, foreground_color: int):
         """Set the colors of the active window."""
         ...
 
-    def print_table(self, table: list[str]) -> None:
+    def set_font(self, font_id: int) -> int:
+        """Set the font of the output character."""
+        ...
+
+    def print_table(self, table: list[str]):
         """Print a table from the print_table op."""
         ...
 
@@ -317,6 +324,11 @@ class ITerminalAdapter(Protocol):
         """The width of the terminal in characters."""
         ...
 
+    @property
+    def at_wrap_boundary(self) -> bool:
+        """Indicates that the output text of the last line has reached the edge of the screen."""
+        ...
+
     def refresh(self):
         """Refresh the terminal display."""
         ...
@@ -331,10 +343,6 @@ class ITerminalAdapter(Protocol):
 
     def get_input_char(self, echo: bool = True) -> int:
         """Get a single input character from the terminal, optionally echoing it to the screen."""
-        ...
-
-    def get_escape_sequence(self) -> list[int]:
-        """Get a sequence of input characters from the terminal, returning them as a list of character codes."""
         ...
 
     def get_input_string(self, prompt: str, lowercase: bool) -> str:
@@ -377,8 +385,16 @@ class ITerminalAdapter(Protocol):
         """Apply the given text style attributes to subsequent terminal output."""
         ...
 
-    def set_color(self, background_color: int, foreground_color: int):
+    def apply_color_settings(self, background_color: int, foreground_color: int):
         """Set the terminal's foreground and background colors for subsequent output."""
+        ...
+
+    def is_font_supported(self, font_id: int) -> bool:
+        """Return true if the terminal output supports the font setting, false otherwise."""
+        ...
+
+    def apply_font(self, font: FontEnum):
+        """Set the character font for output."""
         ...
 
     def sound_effect(self, sound_type: int):

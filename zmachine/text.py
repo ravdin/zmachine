@@ -1,4 +1,5 @@
 from .memory import MemoryMap
+from .config import ZMachineConfig
 from typing import List
 from .error import *
 
@@ -8,9 +9,9 @@ class TextUtils:
     A1 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     A2 = ' ^0123456789.,!?_#\'"/\\-:()'
 
-    def __init__(self, memory_map: MemoryMap):
+    def __init__(self, memory_map: MemoryMap, config: ZMachineConfig):
         self.memory_map = memory_map
-        self.config = memory_map.config
+        self.config = config
         self.separator_chars = self.get_separator_chars()
 
     def read_byte(self, ptr):

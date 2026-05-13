@@ -710,8 +710,7 @@ def op_art_shift(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_set_font(zm: IZMachineInterpreter, *operands: int):
-    # Curses doesn't have different fonts.
-    zm.do_store(0)
+    zm.do_set_font(operands[0])
 
 
 def op_save_undo(zm: IZMachineInterpreter, *operands: int):
