@@ -29,6 +29,8 @@ class CursesAdapter:
         self.main_screen = curses.initscr()
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
+        self._at_wrap_boundary = False
+        self._line_cache: list[int] = [0] * self.width
         self._initialize_curses()
         atexit.register(self.shutdown)
 
@@ -56,14 +58,16 @@ class CursesAdapter:
     
     @property
     def at_wrap_boundary(self) -> bool:
-        # Curses handles moving the cursor at the edge of the screen.
-        return False
+        return self._at_wrap_boundary
 
     def refresh(self):
         self.main_screen.refresh()
 
     def write_to_screen(self, text: str):
+        self._at_wrap_boundary = False
         self.main_screen.addstr(text)
+        if len(text) > 0 and text[-1] != '\n' and self.main_screen.getyx()[1] == 0:
+            self._at_wrap_boundary = True
         self.main_screen.noutrefresh()
 
     def get_input_char(self, echo: bool = True) -> int:
@@ -115,23 +119,33 @@ class CursesAdapter:
     def move_cursor(self, y_pos: int, x_pos: int):
         self.main_screen.move(y_pos, x_pos)
 
-    def get_char_at(self, y_pos: int, x_pos: int) -> int:
-        return self.main_screen.inch(y_pos, x_pos)
-    
-    def paint_char_at(self, y_pos: int, x_pos: int, char_and_attr: int):
-        ch, attr = char_and_attr & 0xFF, char_and_attr >> 8
-        self.main_screen.addch(y_pos, x_pos, ch, attr)
+    def move_cursor_to_line_start(self):
+        y_pos, _ = self.main_screen.getyx()
+        self.main_screen.move(y_pos, 0)
+
+    def cache_current_line(self):
+        y_pos, x_pos = self.main_screen.getyx()
+        for i in range(x_pos):
+            self._line_cache[i] = self.main_screen.inch(y_pos, i)
+        if x_pos < self.width:
+            self._line_cache[x_pos] = 0
+
+    def uncache_current_line(self):
+        y_pos, _ = self.main_screen.getyx()
+        x_pos = 0
+        while x_pos < self.width and self._line_cache[x_pos] != 0:
+            char_and_attr = self._line_cache[x_pos]
+            ch, attr = char_and_attr & 0xff, char_and_attr >> 8
+            self.main_screen.addch(y_pos, x_pos, ch, attr)
+            x_pos += 1
 
     def erase_screen(self, background_color: int = Color.BLACK):
         # Ignore the background color parameter with curses.
         self.main_screen.erase()
 
-    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
-        y_cursor, x_cursor = self.main_screen.getyx()
-        for y in range(top, top + height):
-            self.main_screen.move(y, 0)
-            self.main_screen.clrtoeol()
-        self.main_screen.move(y_cursor, x_cursor)
+    def erase_window(self, left: int, top: int, width: int, height: int, background_color: int = Color.BLACK):
+        win = self.main_screen.subwin(height, width, top, left)
+        win.erase()
 
     def clear_to_eol(self):
         self.main_screen.clrtoeol()

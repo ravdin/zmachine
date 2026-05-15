@@ -4,7 +4,6 @@ from .settings import RuntimeSettings
 from .memory import MemoryMap
 from .protocol import IScreen, ITerminalAdapter, IOutputStream, IMemoryOutputStream, IRecordOutputStream
 from .event import EventManager, EventArgs, PostReadInputEventArgs
-from .enums import WindowPosition, OutputStreamType
 from .error import StreamException
 from .logging import output_logger as logger
 
@@ -18,21 +17,16 @@ class OutputStreamManager:
                  runtime_settings: RuntimeSettings,
                  event_manager: EventManager
                 ):
+        self.config = config
+        self.memory_map = memory_map
+
         self._screen_stream = ScreenStream(screen)
         self._transcript_stream = TranscriptStream(config, runtime_settings, screen, terminal_adapter)
         self._memory_stream = MemoryStream(memory_map)
         self._record_stream = RecordStream()
-        self.streams = {
-            OutputStreamType.SCREEN: self._screen_stream,
-            OutputStreamType.TRANSCRIPT: self._transcript_stream,
-            OutputStreamType.MEMORY: self._memory_stream,
-            OutputStreamType.RECORD: self._record_stream
-        }
-        self.register_delegates(event_manager)
 
-    def register_delegates(self, event_manager: EventManager):
-        for stream in self.streams.values():
-            stream.register_delegates(event_manager)
+        self._transcript_stream.register_delegates(event_manager)
+        self._record_stream.register_delegates(event_manager)
 
     @property
     def screen_stream(self) -> IOutputStream:
@@ -82,9 +76,6 @@ class OutputStream:
     def close(self):
         logger.info(f"Closing {self.__class__.__name__}")
         self.is_active = False
-
-    def register_delegates(self, event_manager: EventManager):
-        pass
 
 
 class ScreenStream(OutputStream):
@@ -143,7 +134,6 @@ class TranscriptStream(OutputStream):
         self.runtime_settings.transcript_active_flag = False
 
     def register_delegates(self, event_manager):
-        super().register_delegates(event_manager)
         event_manager.pre_read_input += self.pre_read_input_handler
         event_manager.post_read_input += self.post_read_input_handler
         event_manager.on_quit += self.on_quit_handler
@@ -193,17 +183,19 @@ class MemoryStream(OutputStream):
         super().__init__()
         self.BUFFER_LEN = 256
         self.memory_map = memory_map
-        self.table_stack = [(0, 0)] * 16
+        self.table_stack = [(0, 0, 0, 0)] * 16
         self.buffer = [0] * self.BUFFER_LEN
         self.buffer_ptr = 0
         self.stack_ptr = 0
 
-    def open(self, table_addr: int):
+    def open(self, table_addr: int, buffering: bool, width: int):
         self.is_active = True
         logger.info(f"Opening memory stream for table at address {table_addr:x}")
+        if buffering:
+            logger.info(f"Memory stream output buffered with width {width}")
         if self.stack_ptr == len(self.table_stack):
             raise StreamException('Opened too many memory streams')
-        self.table_stack[self.stack_ptr] = (table_addr, self.buffer_ptr)
+        self.table_stack[self.stack_ptr] = (table_addr, int(buffering), width, self.buffer_ptr)
         self.stack_ptr += 1
 
     def write(self, text: str, newline: bool):
@@ -221,14 +213,53 @@ class MemoryStream(OutputStream):
         if not self.is_active:
             raise StreamException("Memory stream is already closed")
         self.stack_ptr -= 1
-        table_addr, buffer_start = self.table_stack[self.stack_ptr]
+        table_addr, buffering, width, buffer_start = self.table_stack[self.stack_ptr]
         buffer_len = self.buffer_ptr - buffer_start
-        self.memory_map.write_word(table_addr, buffer_len)
-        for i in range(buffer_len):
-            self.memory_map.write_byte(table_addr + i + 2, self.buffer[buffer_start + i])
+        if buffering:
+            self.flush_buffered(table_addr, buffer_start, width)
+        else:
+            self.flush(table_addr, buffer_start, buffer_len)
+        version = self.memory_map.read_byte(0)
+        if version == 6:
+            font_width = self.memory_map.read_byte(0x27)
+            output_width = width if buffering else buffer_len
+            self.memory_map.write_word(0x30, output_width * font_width)
         self.buffer_ptr = buffer_start
         if self.stack_ptr == 0:
             self.is_active = False
+
+    def flush(self, table_addr: int, buffer_start: int, buffer_len: int, newline: bool = False) -> int:
+        self.memory_map.write_word(table_addr, buffer_len + int(newline))
+        for i in range(buffer_len):
+            self.memory_map.write_byte(table_addr + i + 2, self.buffer[buffer_start + i])
+        if newline:
+            self.memory_map.write_byte(table_addr + buffer_len + 2, 13)
+        return table_addr + buffer_len + int(newline) + 2
+
+    def flush_buffered(self, table_addr: int, buffer_start: int, width: int):
+        pos = buffer_start
+        while pos < self.buffer_ptr:
+            buffer_len = self.buffer_ptr - pos
+            remaining_buffer = self.buffer[pos:]
+            nl_index = remaining_buffer.index(13) if 13 in remaining_buffer else -1
+            if 0 <= nl_index < width:
+                table_addr = self.flush(table_addr, pos, min(width, nl_index + 1))
+                pos += nl_index + 1
+                continue
+            if buffer_len <= width:
+                table_addr = self.flush(table_addr, pos, buffer_len)
+                break
+            if 32 in remaining_buffer[:width + 1]:
+                space_index = width - 1 - remaining_buffer[:width + 1:-1].index(32)
+                table_addr = self.flush(table_addr, pos, space_index, space_index < width)
+                pos += space_index + 1
+                continue
+            # This means there is no whitespace in the output characters.
+            newline = width < len(remaining_buffer)
+            table_addr = self.flush(table_addr, pos, width, newline)
+            pos += width
+        self.memory_map.write_word(table_addr, 0)
+
 
 class RecordStream(OutputStream):
     def __init__(self):

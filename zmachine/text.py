@@ -1,18 +1,28 @@
 from .memory import MemoryMap
 from .config import ZMachineConfig
-from typing import List
 from .error import *
 
 
 class TextUtils:
-    A0 = 'abcdefghijklmnopqrstuvwxyz'
-    A1 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    A2 = ' ^0123456789.,!?_#\'"/\\-:()'
+    DEFAULT_A0 = 'abcdefghijklmnopqrstuvwxyz'
+    DEFAULT_A1 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    DEFAULT_A2 = ' ^0123456789.,!?_#\'"/\\-:()'
 
     def __init__(self, memory_map: MemoryMap, config: ZMachineConfig):
         self.memory_map = memory_map
         self.config = config
         self.separator_chars = self.get_separator_chars()
+        if config.alphabet_table_addr == 0:
+            self.A0 = self.DEFAULT_A0
+            self.A1 = self.DEFAULT_A1
+            self.A2 = self.DEFAULT_A2
+        else:
+            alphabet_bytes = bytearray(78)
+            for i in range(78):
+                alphabet_bytes[i] = memory_map.read_byte(config.alphabet_table_addr + i)
+            self.A0 = str(alphabet_bytes[0:26], encoding='utf-8')
+            self.A1 = str(alphabet_bytes[26:52], encoding='utf-8')
+            self.A2 = str(alphabet_bytes[52:78], encoding='utf-8')
 
     def read_byte(self, ptr):
         return self.memory_map.read_byte(ptr)
@@ -136,22 +146,30 @@ class TextUtils:
                     zscii_code = zchars[zptr + 1] << 5 | zchars[zptr + 2]
                     zptr += 2
                     if zscii_code == 9:
-                        result += [' ']
-                    elif zscii_code < 32 or zscii_code > 126:
-                        raise ZSCIIException(f'Invalid zscii code: {zscii_code}')
-                    else:
+                        result += [' ', ' ', ' '] if self.config.version == 6 else [' ']
+                    elif zscii_code == 11:
+                        result += [' ', ' '] if self.config.version == 6 else [' ']
+                    elif 32 <= zscii_code <= 126:
                         result += [chr(zscii_code)]
+                    else:
+                        raise ZSCIIException(f'Invalid zscii code: {zscii_code}')
                 elif zchar == 7 and current_alphabet == self.A2:
                     result += ['\n']
                 else:
-                    result += [current_alphabet[zchar - 6]]
+                    c = current_alphabet[zchar - 6]
+                    if c == '\x09':
+                        result += [' ', ' ', ' '] if self.config.version == 6 else [' ']
+                    elif c == '\x0b':
+                        result += [' ', ' '] if self.config.version == 6 else [' ']
+                    else:
+                        result += [c]
             else:
                 raise ZSCIIException(f'Invalid z character: {zchar}')
             current_alphabet = self.A0
             zptr += 1
         return ''.join(result)
 
-    def read_zchars(self, addr: int, buffer: List[int]) -> int:
+    def read_zchars(self, addr: int, buffer: list[int]) -> int:
         word = 0
         while word & 0x8000 != 0x8000:
             word = self.read_word(addr)
@@ -169,8 +187,12 @@ class TextUtils:
         zlen = byte_len // 2 * 3
         zchars = []
         for c in text:
-            if 'a' <= c <= 'z':
-                zchars += [ord(c) - 91]
+            if c in self.A0:
+                zchars += [self.A0.index(c) + 6]
+            elif c in self.A1:
+                # NOTE: Normally characters in A1 aren't encoded,
+                # unless the game provides its own alphabet table.
+                zchars += [4, self.A1.index(c) + 6]
             elif c in self.A2[2:]:
                 zchars += [5, self.A2.index(c) + 6]
             elif 32 <= ord(c) <= 126:

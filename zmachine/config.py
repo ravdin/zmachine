@@ -67,7 +67,7 @@ class ZMachineConfig:
         static_memory_base_addr = int.from_bytes(game_data[0xe:0x10], "big")
         serial_number = game_data[0x12:0x18]
         abbreviation_table_addr = int.from_bytes(game_data[0x18:0x1a], "big")
-        file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2)
+        file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2 if version <= 5 else 3)
         checksum = int.from_bytes(game_data[0x1c:0x1e], "big")
         interrupt_zchars: list[int] = []
         alphabet_table_addr = 0

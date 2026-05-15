@@ -82,12 +82,14 @@ class MockTerminalAdapter:
                 self.screen_output += [c]
                 x_pos = 1
             else:
+                if len(self.screen_output) == 0:
+                    self.screen_output = ['']
                 self.screen_output[-1] += c
                 x_pos += 1
             if x_pos == self.width:
                 self._at_wrap_boundary = True
                 x_pos = 0
-        self.move_cursor(self.cursor_pos[0], x_pos)
+        self.cursor_pos = (self.cursor_pos[0], x_pos)
 
     def get_input_char(self, echo: bool = True) -> int:
         if self.input_chars:
@@ -111,6 +113,10 @@ class MockTerminalAdapter:
     
     def move_cursor(self, y_pos: int, x_pos: int):
         self.cursor_pos = (y_pos, x_pos)
+
+    def move_cursor_to_line_start(self):
+        y_pos = self.cursor_pos[0]
+        self.cursor_pos = (y_pos, 0)
     
     def get_char_at(self, y_pos: int, x_pos: int) -> int:
         return ord(' ')
@@ -121,7 +127,7 @@ class MockTerminalAdapter:
     def erase_screen(self):
         self.screen_output.clear()
     
-    def erase_window(self, top: int, height: int):
+    def erase_window(self, left: int, top: int, width: int, height: int):
         pass
     
     def clear_to_eol(self):
@@ -139,6 +145,171 @@ class MockTerminalAdapter:
     def shutdown(self):
         self.shutdown_called = True
 
+"""
+Unit tests for ScreenV6, using a lightweight MockGraphicsAdapter that records
+region/picture/scroll calls and round-trips cursor coordinates in pixel space.
+
+For V6 the screen works entirely in pixels: window positions, sizes, margins,
+and cursor coordinates are all 1-indexed pixels, matching the values the game
+reads and writes. The adapter receives absolute 0-indexed pixel coordinates.
+The mock therefore just needs to store whatever move_cursor last received and
+return it from get_coordinates.
+
+These tests deliberately assert SPECIFIED behavior. Where a test encodes the
+correct behavior for something currently suspected buggy, it is marked and
+commented so a failure points straight at the defect.
+"""
+
+# ============================================================================
+# Mock graphics adapter
+# ============================================================================
+
+class MockGraphicsAdapter:
+    """
+    Implements enough of IGraphicsAdapter + ITerminalAdapter for ScreenV6.
+
+    Pixel screen of `screen_width_pixels` x `screen_height_pixels`, with a font
+    cell of font_width x font_height pixels. Cursor coordinates flow through
+    move_cursor/get_coordinates as absolute 0-indexed pixels.
+    """
+    def __init__(self, width_pixels=1280, height_pixels=800,
+                 font_width=10, font_height=20):
+        self.screen_width_pixels = width_pixels
+        self.screen_height_pixels = height_pixels
+        self.font_width_pixels = font_width
+        self.font_height_pixels = font_height
+
+        self.cursor_pos = (0, 0)            # (y, x) absolute pixels, 0-indexed
+        self._at_wrap_boundary = False
+        self.cursor_enabled = True
+        self.scrolling_enabled = True
+
+        # Recorded calls for assertions
+        self.print_region = None            # (left, top, width, height)
+        self.scrollable_region = None
+        self.mouse_region = None
+        self.scroll_calls = []              # list of (left, top, width, height, pixels)
+        self.draw_calls = []                # list of (number, top, left)
+        self.erase_picture_calls = []       # list of (number, top, left)
+        self.erase_line_calls = []          # list of width
+        self.screen_output = []
+        self.style_attributes = 0
+        self.color_pair = None
+        self.font = FontEnum.DEFAULT
+
+    # --- units / metrics -----------------------------------------------------
+    @property
+    def height(self) -> int:
+        # For V6 the adapter reports height/width in pixels (units == pixels).
+        return self.screen_height_pixels
+
+    @property
+    def width(self) -> int:
+        return self.screen_width_pixels
+
+    @property
+    def font_size(self) -> int:
+        return (self.font_height_pixels << 8) | self.font_width_pixels
+
+    @property
+    def at_wrap_boundary(self) -> bool:
+        return self._at_wrap_boundary
+
+    # --- cursor --------------------------------------------------------------
+    def get_coordinates(self) -> tuple[int, int]:
+        return self.cursor_pos
+
+    def move_cursor(self, y_pos: int, x_pos: int):
+        self.cursor_pos = (y_pos, x_pos)
+
+    def move_cursor_to_line_start(self):
+        if self.print_region is not None:
+            left = self.print_region[0]
+        else:
+            left = 0
+        self.cursor_pos = (self.cursor_pos[0], left)
+
+    # --- output --------------------------------------------------------------
+    def write_to_screen(self, text: str):
+        self.screen_output.append(text)
+
+    def refresh(self):
+        pass
+
+    def clear_to_eol(self):
+        pass
+
+    def apply_style_attributes(self, attributes: int):
+        self.style_attributes = attributes
+
+    def apply_color_settings(self, background_color: int, foreground_color: int):
+        self.color_pair = (background_color, foreground_color)
+
+    def apply_font(self, font: FontEnum):
+        self.font = font
+
+    def is_font_supported(self, font_id: int) -> bool:
+        return font_id == FontEnum.GRAPHICS
+
+    def get_input_char(self, echo: bool = True) -> int:
+        return 13
+
+    def beep(self):
+        pass
+
+    def shutdown(self):
+        pass
+
+    def erase_screen(self, background_color: int = 2):
+        self.screen_output.clear()
+
+    def erase_window(self, left: int, top: int, width: int, height: int, background_color: int = 2):
+        pass
+
+    def set_scrollable_height(self, top: int):
+        # Not used by ScreenV6 (it overrides split_window) but present for safety.
+        pass
+
+    # --- V6 region / picture / scroll ---------------------------------------
+
+    def set_print_region(self, left: int, top: int, width: int, height: int):
+        self.print_region = (left, top, width, height)
+
+    def set_scrollable_region(self, left: int, top: int, width: int, height: int):
+        self.scrollable_region = (left, top, width, height)
+        self.scrolling_enabled = True
+
+    def set_mouse_region(self, left: int, top: int, width: int, height: int):
+        self.mouse_region = (left, top, width, height)
+
+    def scroll_window(self, left: int, top: int, width: int, height: int, pixels: int):
+        self.scroll_calls.append((left, top, width, height, pixels))
+
+    def erase_line(self, width: int):
+        self.erase_line_calls.append(width)
+
+    def get_picture_size(self, number: int, resource_data) -> tuple[int, int]:
+        return (100, 50)
+
+    def draw_picture(self, number: int, top: int, left: int, resource_data):
+        self.draw_calls.append((number, top, left))
+
+    def erase_picture(self, number: int, top: int, left: int, resource_data):
+        self.erase_picture_calls.append((number, top, left))
+
+    # --- Sound effects ----------------------------------------------
+    def load_sound_effect(self, number: int, sound_data: bytes):
+        pass
+
+    def play_sound_effect(self, number: int, sound_data: bytes, volume: int, repeats: int, routine: int):
+        pass
+
+    def interrupt_sound_effect(self, number: int):
+        pass
+
+    def unload_sound_effect(self, number: int):
+        pass
+
 
 class MockResourceData:
     @property
@@ -149,14 +320,29 @@ class MockResourceData:
     def picture_count(self) -> int:
         return 0
 
+    def get_scaling_ratio(self, number, w, h) -> float:
+        return 1.0
+
     def is_valid_picture(self, number: int) -> bool:
         return True
+
+    def is_adaptive_picture(self, number: int) -> bool:
+        return False
 
     def get_picture_data(self, number: int) -> bytes:
         return b''
 
     def get_sound_data(self, number: int) -> bytes:
         return b''
+
+
+@pytest.fixture
+def graphics_adapter():
+    return MockGraphicsAdapter()
+
+@pytest.fixture
+def resource_data():
+    return MockResourceData()
 
 
 class MockScreen:
@@ -298,7 +484,6 @@ def create_valid_quetzal_save(pc: int, release: bytes, serial: bytes, checksum: 
     Returns:
         Valid Quetzal save file bytes
     """
-    from io import BytesIO
     
     # Build IFhd chunk (header)
     ifhd_data = (

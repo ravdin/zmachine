@@ -84,6 +84,7 @@ class Opcode:
             cls(op_call_2s, 25, 4),
             cls(op_call_vn, 26, 5),
             cls(op_set_color, 27, 5),
+            cls(op_throw, 28, 5),
             cls(op_jz, 128),
             cls(op_get_sibling, 129),
             cls(op_get_child, 130),
@@ -110,7 +111,8 @@ class Opcode:
             cls(op_restore, 182, max_version=4),
             cls(op_restart, 183),
             cls(op_ret_popped, 184),
-            cls(op_pop, 185),
+            cls(op_pop, 185, max_version=4),
+            cls(op_catch, 185, 5),
             cls(op_quit, 186),
             cls(op_new_line, 187),
             cls(op_show_status, 188, 3),
@@ -131,7 +133,9 @@ class Opcode:
             cls(op_call, 236, 4, 5),
             cls(op_call_vs, 236, 5),
             cls(op_erase_window, 237, 4),
+            cls(op_erase_line, 238, 4),
             cls(op_set_cursor, 239, 4),
+            cls(op_get_cursor, 240, 4),
             cls(op_set_text_style, 241, 4),
             cls(op_buffer_mode, 242, 4),
             cls(op_output_stream, 243, 3),
@@ -158,10 +162,21 @@ class Opcode:
             cls(op_set_font, 4, 5),
             cls(op_draw_picture, 5, 6),
             cls(op_picture_data, 6, 6),
+            cls(op_erase_picture, 7, 6),
+            cls(op_set_margins, 8, 6),
             cls(op_save_undo, 9, 5),
             cls(op_restore_undo, 10, 5),
+            cls(op_move_window, 16, 6),
+            cls(op_window_size, 17, 6),
+            cls(op_window_style, 18, 6),
             cls(op_get_wind_prop, 19, 6),
-            cls(op_mouse_window, 23, 6)
+            cls(op_scroll_window, 20, 6),
+            cls(op_pop_stack, 21, 6),
+            cls(op_mouse_window, 23, 6),
+            cls(op_push_stack, 24, 6),
+            cls(op_put_wind_prop, 25, 6),
+            cls(op_print_form, 26, 6),
+            cls(op_picture_table, 28, 6)
         ]
 
 
@@ -480,6 +495,10 @@ def op_pop(zm: IZMachineInterpreter, *operands: int):
     zm.stack_pop()
 
 
+def op_catch(zm: IZMachineInterpreter, *operands: int):
+    zm.do_catch()
+
+
 def op_quit(zm: IZMachineInterpreter, *operands: int):
     zm.do_quit()
 
@@ -538,15 +557,26 @@ def op_print_char(zm: IZMachineInterpreter, *operands: int):
     zscii_code = operands[0]
     if zscii_code == 0:
         return
-    # HACK: Treat the tab character like a space.
     if zscii_code == 9:
-        zscii_code = 32
-    if zscii_code < 32 or zscii_code > 126:
-        if zscii_code == 10:
-            zscii_code = 13
-        if zscii_code != 13 and not (155 <= zscii_code <= 251):
-            raise ZSCIIException("Invalid ZSCII code '{0}'".format(zscii_code))
-    zm.write_to_output_streams(chr(zscii_code))
+        if zm.version <= 5:
+            zscii_code = 32
+        else:
+            zm.write_to_output_streams('   ')
+            return
+    elif zscii_code == 10:
+        zscii_code = 13
+    elif zscii_code == 11:
+        if zm.version <= 5:
+            zscii_code = 32
+        else:
+            zm.write_to_output_streams('  ')
+            return
+    if zscii_code == 13 or \
+            32 <= zscii_code <= 126 or \
+            155 <= zscii_code <= 251:
+        zm.write_to_output_streams(chr(zscii_code))
+    else:
+        raise ZSCIIException(f"Invalid ZSCII code '{zscii_code}'")
 
 
 @signed_operands
@@ -572,13 +602,24 @@ def op_push(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_pull(zm: IZMachineInterpreter, *operands: int):
-    varnum = operands[0]
-    value = zm.stack_pop()
-    if varnum == 0:
-        zm.stack_pop()
-        zm.stack_push(value)
+    if zm.version <= 5:
+        varnum = operands[0]
+        value = zm.stack_pop()
+        if varnum == 0:
+            zm.stack_pop()
+            zm.stack_push(value)
+        else:
+            zm.write_var(varnum, value)
     else:
-        zm.write_var(varnum, value)
+        if len(operands) > 0:
+            stack_addr = operands[0]
+            size = zm.read_word(stack_addr) + 1
+            value = zm.read_word(stack_addr + 2 * size)
+            zm.write_word(stack_addr, size)
+            zm.do_store(value)
+        else:
+            value = zm.stack_pop()
+            zm.do_store(value)
 
 
 def op_split_window(zm: IZMachineInterpreter, *operands: int):
@@ -594,10 +635,25 @@ def op_erase_window(zm: IZMachineInterpreter, *operands: int):
     zm.screen.erase_window(operands[0])
 
 
+def op_erase_line(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.erase_line(operands[0])
+
+
+def op_get_cursor(zm: IZMachineInterpreter, *operands: int):
+    addr = operands[0]
+    y, x = zm.screen.get_cursor()
+    zm.write_word(addr, y)
+    zm.write_word(addr + 2, x)
+
+
+@signed_operands
 def op_set_cursor(zm: IZMachineInterpreter, *operands: int):
-    y, x = operands
-    # The z-machine standard is 1-indexed for cursor positions, but the interpreter's screen coordinates are 0-indexed.
-    zm.screen.set_cursor(y - 1, x - 1)
+    if operands[0] == -1:
+        zm.screen.set_cursor_enabled(False)
+    elif operands[0] == -2:
+        zm.screen.set_cursor_enabled(True)
+    else:
+        zm.screen.set_cursor(*operands)
 
 
 def op_set_text_style(zm: IZMachineInterpreter, *operands: int):
@@ -606,15 +662,20 @@ def op_set_text_style(zm: IZMachineInterpreter, *operands: int):
 
 def op_buffer_mode(zm: IZMachineInterpreter, *operands: int):
     mode: bool = operands[0] != 0
-    zm.screen.buffer_mode = mode
+    zm.screen.set_buffer_mode(mode)
 
 
 def op_output_stream(zm: IZMachineInterpreter, *operands: int):
     stream_id = sign_uint16(operands[0])
     table_addr = 0
+    buffering = False
+    width = 0
     if stream_id == 3 and len(operands) > 1:
         table_addr = operands[1]
-    zm.do_select_output_stream(stream_id, table_addr)
+        if len(operands) > 2:
+            width = sign_uint16(operands[2])
+            buffering = True
+    zm.do_select_output_stream(stream_id, table_addr, buffering, width)
 
 
 def op_sound_effect(zm: IZMachineInterpreter, *operands: int):
@@ -648,11 +709,13 @@ def op_call_vn(zm: IZMachineInterpreter, *operands: int):
     zm.do_routine(call_addr, args, RoutineType.DISCARD)
 
 
+@signed_operands
 def op_set_color(zm: IZMachineInterpreter, *operands: int):
-    foreground_color = operands[0]
-    background_color = operands[1]
-    window_id = -1 if len(operands) < 3 else operands[2]
-    zm.screen.set_color(foreground_color=foreground_color, background_color=background_color, window_id=window_id)
+    zm.screen.set_color(*operands)
+
+
+def op_throw(zm: IZMachineInterpreter, *operands: int):
+    zm.do_throw(*operands)
 
 
 def op_call_vn2(zm: IZMachineInterpreter, *operands: int):
@@ -719,10 +782,7 @@ def op_art_shift(zm: IZMachineInterpreter, *operands: int):
 
 @signed_operands
 def op_set_font(zm: IZMachineInterpreter, *operands: int):
-    font_id = operands[0]
-    # -3 is the currently selected window.
-    window_id = -3 if len(operands) < 2 else operands[1]
-    store_val = zm.screen.set_font(font_id, window_id)
+    store_val = zm.screen.set_font(*operands)
     zm.do_store(store_val)
 
 
@@ -735,6 +795,15 @@ def op_picture_data(zm: IZMachineInterpreter, *operands: int):
     zm.do_get_picture_data(*operands)
 
 
+def op_erase_picture(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.erase_picture(*operands)
+
+
+@signed_operands
+def op_set_margins(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.set_margins(*operands)
+
+
 def op_save_undo(zm: IZMachineInterpreter, *operands: int):
     zm.do_save_undo()
 
@@ -744,10 +813,75 @@ def op_restore_undo(zm: IZMachineInterpreter, *operands: int):
 
 
 @signed_operands
+def op_move_window(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.move_window(*operands)
+
+
+@signed_operands
+def op_window_size(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.resize_window(*operands)
+
+
+@signed_operands
+def op_window_style(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.set_window_attributes(*operands)
+
+
+@signed_operands
 def op_get_wind_prop(zm: IZMachineInterpreter, *operands: int):
     result = zm.screen.get_window_property(*operands)
     zm.do_store(result)
 
+
+@signed_operands
+def op_scroll_window(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.scroll_window(*operands)
+
+
+def op_pop_stack(zm: IZMachineInterpreter, *operands: int):
+    items = operands[0]
+    if len(operands) == 1:
+        for _ in range(items):
+            zm.stack_pop()
+    else:
+        stack_addr = operands[1]
+        size = zm.read_word(stack_addr)
+        zm.write_word(stack_addr, size + items)
+
+
 @signed_operands
 def op_mouse_window(zm: IZMachineInterpreter, *operands: int):
     zm.screen.set_mouse_window(operands[0])
+
+
+def op_push_stack(zm: IZMachineInterpreter, *operands: int):
+    value, stack_addr = operands
+    size = zm.read_word(stack_addr)
+    if size != 0:
+        zm.write_word(stack_addr + 2 * size, value)
+        zm.write_word(stack_addr, size - 1)
+    zm.do_branch(size)
+
+
+@signed_operands
+def op_put_wind_prop(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.put_window_property(*operands)
+
+
+def op_print_form(zm: IZMachineInterpreter, *operands: int):
+    table_addr = operands[0]
+    while True:
+        count = zm.read_word(table_addr)
+        if count == 0:
+            break
+        buffer = [0] * count
+        for i in range(count):
+            buffer[i] = zm.read_byte(table_addr + i + 2)
+        table_addr += count + 2
+        text = str(bytes(buffer), encoding='latin-1')
+        zm.write_to_output_streams(text)
+
+
+def op_picture_table(zm: IZMachineInterpreter, *operands: int):
+    # Treating as a noop for now.
+    pass
