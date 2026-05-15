@@ -60,6 +60,11 @@ class InvalidBlorbFileException(ZMachineException):
         super().__init__(f'"{filename}" is not a valid blorb file')
 
 
+class InvalidPictureResourceException(ZMachineException):
+    def __init__(self, number: int):
+        super().__init__(f'Attempting to draw unrecognized picture resource: {number}')
+
+
 class UnsupportedExecutableResourceException(ZMachineException):
     def __init__(self, chunk_type: bytes):
         super().__init__(f'"{chunk_type!r}" is not a supported executable resource')

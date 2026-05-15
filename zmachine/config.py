@@ -1,8 +1,6 @@
-from pathlib import Path
 from dataclasses import dataclass, field
 from .constants import SUPPORTED_VERSIONS, STORY_VERSIONS
 from .enums import StoryEnum
-from .blorb import BlorbFile
 from .error import InvalidGameFileException
 
 @dataclass(frozen=True)
@@ -11,8 +9,6 @@ class ZMachineConfig:
 
     game_file: str
     """ Path to the game file."""
-    blorb_file_path: str = ''
-    """Path to a blorb resource file, if available."""
 
     # Header values
     version: int = 0
@@ -45,6 +41,10 @@ class ZMachineConfig:
     """Address of a game provided alphabet table (version 5 and above)"""
     header_extension_addr: int = 0
     """Address of the header extension table (version 5 and above)"""
+    routine_offset: int = 0
+    """Offset for routine addresses (v6)"""
+    strings_offset: int = 0
+    """Offset for static strings (v6)"""
     story: StoryEnum = StoryEnum.UNKNOWN
 
     @classmethod
@@ -57,9 +57,6 @@ class ZMachineConfig:
                 raise InvalidGameFileException(f"Unsupported Z-Machine version: v{version}")
             else:
                 raise InvalidGameFileException(f"Unrecognized Z-Machine file") 
-
-        game_file_path = Path(game_file).parent
-        blorb_file_path, _ = BlorbFile.detect_blorb_file(str(game_file_path))
 
         release_number = game_data[0x2:0x4]
         high_memory_base_addr = int.from_bytes(game_data[0x4:0x6], "big")
@@ -75,6 +72,8 @@ class ZMachineConfig:
         interrupt_zchars: list[int] = []
         alphabet_table_addr = 0
         header_extension_addr = 0
+        routine_offset = 0
+        strings_offset = 0
         story = STORY_VERSIONS.get((int.from_bytes(release_number, "big"), serial_number), StoryEnum.UNKNOWN)
         if version >= 5:
             zchars_addr = int.from_bytes(game_data[0x2e:0x30], "big")
@@ -85,10 +84,12 @@ class ZMachineConfig:
                 zchar = game_data[zchars_addr]
             alphabet_table_addr = int.from_bytes(game_data[0x34:0x36], "big")
             header_extension_addr = int.from_bytes(game_data[0x36:0x38], "big")
+        if version >= 6:
+            routine_offset = int.from_bytes(game_data[0x28:0x2a], "big") << 3
+            strings_offset = int.from_bytes(game_data[0x2a:0x2c], "big") << 3
 
         return cls(
             game_file = game_file,
-            blorb_file_path = blorb_file_path,
             version = version,
             release_number = release_number,
             high_memory_base_addr = high_memory_base_addr,
@@ -104,6 +105,8 @@ class ZMachineConfig:
             interrupt_zchars = tuple(interrupt_zchars),
             alphabet_table_addr = alphabet_table_addr,
             header_extension_addr = header_extension_addr,
+            routine_offset = routine_offset,
+            strings_offset = strings_offset,
             story = story
         )
     

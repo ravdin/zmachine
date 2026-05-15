@@ -1,5 +1,5 @@
 from typing import Protocol, Callable, runtime_checkable
-from .enums import WindowPosition, RoutineType, FontEnum
+from .enums import Color, RoutineType, FontEnum, PackedAddressType
 
 @runtime_checkable
 class ISerializable(Protocol):
@@ -85,6 +85,28 @@ class IObjectTable(Protocol):
         ...
 
 @runtime_checkable
+class IResourceData(Protocol):
+    """
+    Interface for external resource files containing data such as sounds and pictures.
+    """
+    @property
+    def release_number(self) -> int:
+        ...
+    
+    @property
+    def picture_count(self) -> int:
+        ...
+
+    def is_valid_picture(self, number: int) -> bool:
+        ...
+
+    def get_picture_data(self, number: int) -> bytes:
+        ...
+
+    def get_sound_data(self, number: int) -> bytes:
+        ...
+
+@runtime_checkable
 class IZMachineInterpreter(Protocol):
     """
     Interpreter interface to be referenced by the opcodes.
@@ -98,6 +120,10 @@ class IZMachineInterpreter(Protocol):
     def object_table(self) -> IObjectTable:
         ...
 
+    @property
+    def screen(self) -> 'IScreen':
+        ...
+
     def do_branch(self, is_truthy: int):
         ...
 
@@ -108,7 +134,7 @@ class IZMachineInterpreter(Protocol):
         ...
 
     def write_byte(self, addr: int, value: int):
-        pass
+        ...
 
     def read_word(self, addr: int) -> int:
         ...
@@ -122,7 +148,7 @@ class IZMachineInterpreter(Protocol):
     def write_var(self, varnum: int, value: int):
         ...
 
-    def unpack_addr(self, packed_addr: int) -> int:
+    def unpack_addr(self, packed_addr: int, addr_type: int = PackedAddressType.ROUTINE) -> int:
         ...
 
     def do_routine(self, routine_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
@@ -197,35 +223,15 @@ class IZMachineInterpreter(Protocol):
     def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
         ...
 
-    def do_split_window(self, lines: int):
-        ...
-
-    def do_set_window(self, window_id: int):
-        ...
-
-    def do_erase_window(self, window_id: int):
-        ...
-
-    def do_set_cursor(self, y: int, x: int):
-        ...
-
-    def do_set_text_style(self, style: int):
-        ...
-
-    def do_set_buffer_mode(self, mode: bool):
-        ...
-
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         ...
 
     def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
         ...
 
-    def do_set_color(self, foreground_color: int, background_color: int):
+    def do_get_picture_data(self, number: int, array: int):
         ...
 
-    def do_set_font(self, font_id: int):
-        ...
 
 @runtime_checkable
 class IScreen(Protocol):
@@ -256,8 +262,13 @@ class IScreen(Protocol):
         ...
 
     @property
-    def active_window_id(self) -> 'WindowPosition':
-        """The currently active window."""
+    def transcript_output_enabled(self) -> bool:
+        """Indicates that transcript output is enabled in the active window."""
+        ...
+
+    @property
+    def resource_data(self) -> IResourceData:
+        """Expose the underlying resources for reading."""
         ...
 
     def refresh_status_line(self, location: str, status: str):
@@ -297,16 +308,36 @@ class IScreen(Protocol):
         """Set the text style (reverse background, underline, bold)."""
         ...
 
-    def set_color(self, background_color: int, foreground_color: int):
+    def set_color(self, background_color: int, foreground_color: int, window_id: int):
         """Set the colors of the active window."""
         ...
 
-    def set_font(self, font_id: int) -> int:
+    def set_font(self, font_id: int, window_id: int) -> int:
         """Set the font of the output character."""
         ...
 
     def print_table(self, table: list[str]):
         """Print a table from the print_table op."""
+        ...
+
+    def get_window_property(self, window_id: int, property_number: int) -> int:
+        """Read the given property of the given window."""
+        ...
+
+    def put_window_property(self, window_id: int, property_number: int, value: int):
+        """Write a window property."""
+        ...
+
+    def get_picture_size(self, number: int) -> tuple[int, int]:
+        """Get a picture resource width and height."""
+        ...
+
+    def draw_picture(self, number: int, y: int = 0, x: int = 0):
+        """Draw a picture from the resource data."""
+        ...
+
+    def set_mouse_window(self, window_id: int):
+        """Restrict mouse input to the boundaries of the given window."""
         ...
 
 @runtime_checkable
@@ -322,6 +353,11 @@ class ITerminalAdapter(Protocol):
     @property
     def width(self) -> int:
         """The width of the terminal in characters."""
+        ...
+
+    @property
+    def font_size(self) -> int:
+        """Return font height (upper bytes) and font width (lower bytes)."""
         ...
 
     @property
@@ -369,11 +405,11 @@ class ITerminalAdapter(Protocol):
         """Paint the specified character code at the given coordinates."""
         ...
 
-    def erase_screen(self):
+    def erase_screen(self, background_color: int = Color.BLACK):
         """Erase the entire terminal screen."""
         ...
 
-    def erase_window(self, top: int, height: int):
+    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
         """Erase a portion of the terminal screen defined by the top coordinate and height."""
         ...
 
@@ -389,6 +425,19 @@ class ITerminalAdapter(Protocol):
         """Set the terminal's foreground and background colors for subsequent output."""
         ...
 
+    def beep(self):
+        """Emit a beep."""
+        ...
+
+    def shutdown(self):
+        """Perform any necessary cleanup of the terminal before exiting."""
+        ...
+
+@runtime_checkable
+class IGraphicsAdapter(Protocol):
+    """
+    Defines additional methods for display beyond TerminalAdapter.
+    """
     def is_font_supported(self, font_id: int) -> bool:
         """Return true if the terminal output supports the font setting, false otherwise."""
         ...
@@ -397,12 +446,32 @@ class ITerminalAdapter(Protocol):
         """Set the character font for output."""
         ...
 
-    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+    def get_picture_size(self, number: int, resource_data: IResourceData) -> tuple[int, int]:
+        """Get the width and height of a picture resource."""
+        ...
+
+    def draw_picture(self, number: int, y: int, x: int, resource_data: IResourceData):
+        """Draw a picture."""
+        ...
+
+    def load_sound_effect(self, number: int, sound_data: bytes):
+        """Prepare a sound effect to be played."""
+        ...
+
+    def play_sound_effect(self, number: int, sound_data: bytes, volume: int, repeats: int, routine: int):
         """Play a sound effect of the specified type."""
         ...
 
-    def shutdown(self):
-        """Perform any necessary cleanup of the terminal before exiting."""
+    def interrupt_sound_effect(self, number: int):
+        """Interrupt the given sound effect."""
+        ...
+
+    def unload_sound_effect(self, number: int):
+        """Unload a sound effect from memory."""
+        ...
+
+    def set_mouse_boundary(self, top: int, left: int, bottom: int, right: int):
+        """Restrict mouse input to the boundaries of a window."""
         ...
 
 @runtime_checkable

@@ -6,6 +6,10 @@ class RoutineType(IntEnum):
     DISCARD = 1
     DIRECT_CALL = 2
 
+class PackedAddressType(IntEnum):
+    ROUTINE = auto()
+    STRING = auto()
+
 class WindowPosition(IntEnum):
     LOWER = 0
     UPPER = 1
@@ -40,6 +44,9 @@ class Color(IntEnum):
     MAGENTA = 7
     CYAN = 8
     WHITE = 9
+    LIGHT_GRAY = 10
+    MEDIUM_GRAY = 11
+    DARK_GRAY = 12
     
 class Cursor(IntEnum):
     UP = 129

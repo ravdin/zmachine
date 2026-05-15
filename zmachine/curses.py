@@ -51,6 +51,10 @@ class CursesAdapter:
         return curses.COLS
     
     @property
+    def font_size(self) -> int:
+        return 0x101
+    
+    @property
     def at_wrap_boundary(self) -> bool:
         # Curses handles moving the cursor at the edge of the screen.
         return False
@@ -118,10 +122,11 @@ class CursesAdapter:
         ch, attr = char_and_attr & 0xFF, char_and_attr >> 8
         self.main_screen.addch(y_pos, x_pos, ch, attr)
 
-    def erase_screen(self):
+    def erase_screen(self, background_color: int = Color.BLACK):
+        # Ignore the background color parameter with curses.
         self.main_screen.erase()
 
-    def erase_window(self, top: int, height: int):
+    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
         y_cursor, x_cursor = self.main_screen.getyx()
         for y in range(top, top + height):
             self.main_screen.move(y, 0)
@@ -152,14 +157,6 @@ class CursesAdapter:
         color_pair = curses.color_pair(pair_number)
         self.main_screen.attron(color_pair)
 
-    def is_font_supported(self, font_id: int) -> bool:
-        """Multiple fonts are not supported in curses, always returns False."""
-        return False
-
-    def apply_font(self, font: FontEnum):
-        """Multiple fonts are not supported, treat as a nop if called."""
-        pass
-
     def set_scrollable_height(self, top: int):
         if top == self.height - 1:
             self.main_screen.scrollok(False)
@@ -173,10 +170,8 @@ class CursesAdapter:
         curses.noecho()
         curses.cbreak()
 
-    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
-        # Curses does not support sound effects other than a terminal beep.
-        if number in (1, 2):
-            curses.beep()
+    def beep(self):
+        curses.beep()
 
     def shutdown(self):
         try:

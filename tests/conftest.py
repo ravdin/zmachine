@@ -37,6 +37,7 @@ class MockTerminalAdapter:
     def __init__(self, width: int = 80, height: int = 24):
         self._width = width
         self._height = height
+        self.font_size = 0x101
         self.screen_output = []
         self.cursor_pos = (0, 0)
         self.input_chars = []
@@ -135,11 +136,37 @@ class MockTerminalAdapter:
     def apply_color_settings(self, background_color: int, foreground_color: int):
         self.color_pair = (background_color, foreground_color)
     
-    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+    def beep(self):
+        pass
+
+    def play_sound_effect(self, number: int, sound_data: bytes, volume: int, repeats: int, routine: int):
+        pass
+
+    def interrupt_sound_effect(self, number: int):
         pass
     
     def shutdown(self):
         self.shutdown_called = True
+
+
+class MockResourceData:
+    @property
+    def has_data(self) -> bool:
+        return False
+
+    @property
+    def release_number(self) -> int:
+        return 0
+
+    @property
+    def picture_count(self) -> int:
+        return 0
+
+    def get_picture_data(self, number: int) -> bytes:
+        return b''
+
+    def get_sound_data(self, number: int) -> bytes:
+        return b''
 
 
 class MockScreen:
@@ -151,6 +178,10 @@ class MockScreen:
         self.buffer_mode = True
         self.active_window_id = WindowPosition.LOWER
         self.operations = []  # Track method calls
+
+    @property
+    def transcript_output_enabled(self) -> bool:
+        return False
         
     def print(self, text: str, newline: bool = False):
         self.operations.append(('print', text, newline))
@@ -190,6 +221,11 @@ class MockScreen:
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+@pytest.fixture
+def mock_resource_data():
+    return MockResourceData()
+
 
 @pytest.fixture
 def mock_terminal_adapter():
@@ -568,35 +604,12 @@ class MockInterpreter:
     def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
         pass
     
-    def do_split_window(self, lines: int):
-        pass
-    
-    def do_set_window(self, window_id: int):
-        pass
-    
-    def do_erase_window(self, window_id: int):
-        pass
-    
-    def do_set_cursor(self, y: int, x: int):
-        pass
-    
-    def do_set_text_style(self, style: int):
-        pass
-    
-    def do_set_buffer_mode(self, mode: bool):
-        pass
-    
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         pass
     
     def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
         pass
     
-    def do_set_color(self, foreground_color: int, background_color: int):
-        pass
-
-    def do_set_font(self, font_id: int):
-        pass
 
 class MockObjectTable:
     """Mock object table for testing."""
