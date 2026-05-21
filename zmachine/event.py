@@ -18,6 +18,10 @@ class MouseClickEventArgs(EventArgs):
     x_coordinate: int
     y_coordinate: int
 
+@dataclass
+class RoutineCallEventArgs(EventArgs):
+    routine_addr: int
+
 
 class Event[T: EventArgs]:
     def __init__(self):
@@ -48,5 +52,7 @@ class EventManager():
         self.post_read_input = Event[PostReadInputEventArgs]()
         # Raised on a mouse click.
         self.on_mouse_click = Event[MouseClickEventArgs]()
+        # Raised when a sound effect has been played (but not interrupted)
+        self.on_routine_call = Event[RoutineCallEventArgs]()
         # Raised when quitting the game.
         self.on_quit = Event[EventArgs]()

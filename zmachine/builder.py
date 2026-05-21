@@ -50,7 +50,7 @@ class ZMachineBuilder:
         if ui_type == UIType.TEXT:
             return CursesAdapter()
         if ui_type == UIType.GRAPHICS:
-            return GraphicsAdapter(event_manager = event_manager, runtime_settings = runtime_settings, story = config.story)
+            return GraphicsAdapter(event_manager = event_manager, config = config, runtime_settings = runtime_settings)
         raise ZMachineException("Unrecognized UI type")
 
     @staticmethod

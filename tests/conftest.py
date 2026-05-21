@@ -135,7 +135,7 @@ class MockTerminalAdapter:
     def apply_color_settings(self, background_color: int, foreground_color: int):
         self.color_pair = (background_color, foreground_color)
     
-    def sound_effect(self, sound_type: int):
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
         pass
     
     def shutdown(self):
@@ -183,8 +183,8 @@ class MockScreen:
     def refresh_status_line(self, location: str, status: str):
         self.operations.append(('refresh_status_line', location, status))
     
-    def sound_effect(self, type: int):
-        self.operations.append(('sound_effect', type))
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+        self.operations.append(('sound_effect', effect, volume, repeats, routine))
 
 
 # ============================================================================
@@ -589,7 +589,7 @@ class MockInterpreter:
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         pass
     
-    def do_sound_effect(self, type: int):
+    def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
         pass
     
     def do_set_color(self, foreground_color: int, background_color: int):

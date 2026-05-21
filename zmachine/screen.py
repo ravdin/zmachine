@@ -140,8 +140,8 @@ class BaseScreen:
         self.terminal_adapter.move_cursor(self.active_window.y_cursor, self.active_window.x_cursor)
         self.terminal_adapter.refresh()
 
-    def sound_effect(self, type: int): 
-        self.terminal_adapter.sound_effect(type)
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int): 
+        self.terminal_adapter.sound_effect(number, effect, volume, repeats, routine)
 
     def set_cursor(self, y_pos: int, x_pos: int):
         raise NotImplementedError(f"Set cursor is not implemented in v{self.version} screen.")

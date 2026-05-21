@@ -125,6 +125,7 @@ def mock_event_manager():
     manager = Mock()
     manager.pre_read_input = MagicMock()
     manager.on_mouse_click = MagicMock()
+    manager.on_routine_call = MagicMock()
     return manager
 
 

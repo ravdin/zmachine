@@ -1,6 +1,7 @@
 from .memory import MemoryMap
 from .config import ZMachineConfig
 from .error import *
+from .logging import object_table_logger as logger
 
 
 class ObjectTable:
@@ -43,6 +44,7 @@ class ObjectTable:
         # bounds of the file. The official interpreter would return 0 in this case, which
         # accidentally works.
         if obj_addr > self.config.static_memory_base_addr:
+            logger.warning(f'Object ID {obj_id} is out of range')
             obj_addr = 0
         return obj_addr
 
@@ -201,7 +203,8 @@ class ObjectTable:
 
     def get_property_addr(self, obj_id: int, prop_id: int) -> int | None:
         if prop_id <= 0 or prop_id > self.PROPERTY_DEFAULTS_LENGTH:
-            raise InvalidArgumentException(f"Invalid property id: {prop_id}")
+            logger.warning(f"Invalid property id: {prop_id} for object: {obj_id}")
+            return 0
         prop_addr = self.get_first_property_addr(obj_id)
         while prop_addr is not None:
             property_num = self.get_property_num(prop_addr)

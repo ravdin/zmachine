@@ -1,6 +1,8 @@
+from pathlib import Path
 from dataclasses import dataclass, field
 from .constants import SUPPORTED_VERSIONS, STORY_VERSIONS
 from .enums import StoryEnum
+from .blorb import BlorbFile
 from .error import InvalidGameFileException
 
 @dataclass(frozen=True)
@@ -9,6 +11,8 @@ class ZMachineConfig:
 
     game_file: str
     """ Path to the game file."""
+    blorb_file_path: str = ''
+    """Path to a blorb resource file, if available."""
 
     # Header values
     version: int = 0
@@ -52,7 +56,10 @@ class ZMachineConfig:
             if 0 < version <= 6:
                 raise InvalidGameFileException(f"Unsupported Z-Machine version: v{version}")
             else:
-                raise InvalidGameFileException(f"Unrecognized Z-Machine file")    
+                raise InvalidGameFileException(f"Unrecognized Z-Machine file") 
+
+        game_file_path = Path(game_file).parent
+        blorb_file_path, _ = BlorbFile.detect_blorb_file(str(game_file_path))
 
         release_number = game_data[0x2:0x4]
         high_memory_base_addr = int.from_bytes(game_data[0x4:0x6], "big")
@@ -81,6 +88,7 @@ class ZMachineConfig:
 
         return cls(
             game_file = game_file,
+            blorb_file_path = blorb_file_path,
             version = version,
             release_number = release_number,
             high_memory_base_addr = high_memory_base_addr,

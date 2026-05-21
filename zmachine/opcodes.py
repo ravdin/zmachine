@@ -613,7 +613,7 @@ def op_output_stream(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_sound_effect(zm: IZMachineInterpreter, *operands: int):
-    zm.do_sound_effect(operands[0])
+    zm.do_sound_effect(*operands)
 
 
 def op_read_char(zm: IZMachineInterpreter, *operands: int):

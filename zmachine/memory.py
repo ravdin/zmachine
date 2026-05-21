@@ -100,6 +100,6 @@ class MemoryMap:
         if self._version == 5:
             flags2 = self.read_word(0x10)
             if not self._graphics_enabled:
-                # Clear bits 3 (graphics support) and 5 (mouse support).
-                flags2 &= 0xd7
+                # Clear bits 3 (graphics support), 5 (mouse support), and 7 (sound effects).
+                flags2 &= 0x57
             self.write_word(0x10, flags2)

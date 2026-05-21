@@ -8,10 +8,14 @@ File: zmachine/graphics.py
 """
 import pygame
 import sys
+import io
+import numpy as np
 from dataclasses import dataclass
-from .event import EventManager, MouseClickEventArgs
+from .blorb import BlorbFile
+from .event import EventManager, MouseClickEventArgs, RoutineCallEventArgs
+from .config import ZMachineConfig
 from .settings import RuntimeSettings
-from .enums import FontEnum, FunctionKey, StoryEnum, MouseClick
+from .enums import FontEnum, FunctionKey, StoryEnum, MouseClick, SoundEffectEnum
 from .constants import FONT3_BITMAP
 from .logging import graphics_logger as logger
 
@@ -37,8 +41,14 @@ class GraphicsAdapter:
     
     Implements ITerminalAdapter protocol via duck typing.
     """
+    SOUND_END_EVENT = pygame.USEREVENT + 1
     
-    def __init__(self, event_manager: EventManager, runtime_settings: RuntimeSettings, window_width: int = 1280, window_height: int = 800, story = StoryEnum.UNKNOWN):
+    def __init__(self, 
+                 event_manager: EventManager,
+                 config: ZMachineConfig,
+                 runtime_settings: RuntimeSettings, 
+                 window_width: int = 1280, 
+                 window_height: int = 800):
         """
         Initialize pygame window.
         
@@ -52,12 +62,13 @@ class GraphicsAdapter:
         self.window_width = window_width
         self.window_height = window_height
         self.event_manager = event_manager
-        self.mouse_enabled = runtime_settings.mouse_enabled
-        self._at_wrap_boundary = False
         self.screen = pygame.display.set_mode((window_width, window_height))
+        self._mouse_enabled = runtime_settings.mouse_enabled
+        self._at_wrap_boundary = False
         self.current_font = FontEnum.DEFAULT
+        self.beep = self._make_beep()
         pygame.key.set_repeat(500, 100)  # 500ms delay, then repeat every 100ms
-        title = "Z-Machine Interpreter" if story == StoryEnum.UNKNOWN else story
+        title = "Z-Machine Interpreter" if config.story == StoryEnum.UNKNOWN else config.story
         pygame.display.set_caption(f"{title}")
         
         # Font setup - try monospace first
@@ -97,6 +108,17 @@ class GraphicsAdapter:
         
         # Input timeout (milliseconds)
         self.input_timeout_ms = 0
+
+        # Configure blorb resources, if applicable.
+        self.blorb_file: BlorbFile | None = None
+        self.sound_channel: pygame.mixer.Channel | None = None
+        self._pending_routine: int = 0
+        self._sound_interrupted: bool = False
+        self._sound_resources: dict[int, pygame.mixer.Sound] = {}
+        if config.blorb_file_path:
+            self.blorb_file = BlorbFile(config.blorb_file_path)
+            self.sound_channel = pygame.mixer.Channel(0)
+            self.sound_channel.set_endevent(self.SOUND_END_EVENT)
         
         # Clear screen
         self.screen.fill(self.current_bg)
@@ -179,6 +201,15 @@ class GraphicsAdapter:
                     logger.info("User closed window")
                     pygame.quit()
                     sys.exit(0)
+
+                if event.type == self.SOUND_END_EVENT:
+                    if self._sound_interrupted:
+                        self._sound_interrupted = False
+                    elif self._pending_routine != 0:
+                        routine_call_event_args = RoutineCallEventArgs(self._pending_routine)
+                        self.event_manager.on_routine_call.invoke(self, routine_call_event_args)
+                        self._pending_routine = 0
+                    continue
                 
                 if event.type == pygame.KEYDOWN:
                     # Handle special keys
@@ -214,9 +245,10 @@ class GraphicsAdapter:
                             self.refresh()
                     
                     logger.debug(f"Input char: {char_code}")
+                    self._draw_cursor(False)
                     return char_code
                 
-                if event.type == pygame.MOUSEBUTTONDOWN and self.mouse_enabled:
+                if event.type == pygame.MOUSEBUTTONDOWN and self._mouse_enabled:
                     pixel_x, pixel_y = pygame.mouse.get_pos()
                     event_args = MouseClickEventArgs(pixel_x // self.char_width, pixel_y // self.char_height)
                     self.event_manager.on_mouse_click.invoke(self, event_args)
@@ -396,10 +428,41 @@ class GraphicsAdapter:
     def apply_font(self, font: FontEnum):
         self.current_font = font
     
-    def sound_effect(self, sound_type: int):
-        """Play a sound effect (stubbed for now)."""
-        logger.debug(f"Sound effect: {sound_type}")
-        # TODO: Implement sound when needed (pygame.mixer)
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+        """Play a sound effect."""
+        logger.debug(f"Sound effect: number {number}, effect {effect}, volume {volume}, repeats {repeats}, routine {routine}")
+        if number in (1, 2):
+            self.beep.play()
+            return
+        if self.sound_channel is None:
+            return
+        elif effect == SoundEffectEnum.PREPARE:
+            self._load_sound(number)
+        elif effect == SoundEffectEnum.PLAY:
+            if number not in self._sound_resources:
+                self._load_sound(number)
+            if number not in self._sound_resources:
+                return
+            if pygame.mixer.get_busy():
+                self._sound_interrupted = True
+            sound = self._sound_resources[number]
+            if volume < 0:
+                sound.set_volume(1.0)
+            else:
+                sound.set_volume(volume / 8.0)
+            loops = repeats if repeats <= 0 else repeats - 1
+            self.sound_channel.play(sound, loops = loops)
+            self._pending_routine = routine
+        elif effect in (SoundEffectEnum.INTERRUPT, SoundEffectEnum.UNLOAD):
+            self._sound_interrupted = True
+            if number == 0:
+                self.sound_channel.stop()
+                if effect == SoundEffectEnum.UNLOAD:
+                    self._sound_resources.clear()
+            elif number in self._sound_resources:
+                self._sound_resources[number].stop()
+                if effect == SoundEffectEnum.UNLOAD:
+                    del self._sound_resources[number]
     
     def shutdown(self):
         """Cleanup pygame resources."""
@@ -571,3 +634,28 @@ class GraphicsAdapter:
                     pixel_left += pixel_width
                     row_bit >>= 1
                 pixel_top += pixel_height
+
+    def _make_beep(self, frequency: int = 440, duration_ms: int = 200, volume: float = 0.3) -> pygame.mixer.Sound:
+        """Generate a simple sine wave beep."""
+        sample_rate = 44100
+        num_samples = int(sample_rate * duration_ms / 1000)
+        
+        t = np.linspace(0, duration_ms / 1000, num_samples, False)
+        wave = np.sin(2 * np.pi * frequency * t) * volume
+        
+        # Convert to 16-bit signed integers
+        wave = (wave * 32767).astype(np.int16)
+        
+        # pygame expects stereo
+        stereo = np.column_stack([wave, wave])
+        
+        return pygame.sndarray.make_sound(stereo)
+
+    def _load_sound(self, number: int):
+        if self.blorb_file is None:
+            return
+        sound_data = self.blorb_file.get_sound_data(number)
+        if len(sound_data) == 0:
+            logger.warning(f"Sound data not found for requested number {number}")
+        else:
+            self._sound_resources[number] = pygame.mixer.Sound(io.BytesIO(sound_data))

@@ -120,6 +120,7 @@ def setup_logging(
 # Subsystem loggers
 opcodes_logger = logging.getLogger('zmachine.opcodes')
 memory_logger = logging.getLogger('zmachine.memory')
+object_table_logger = logging.getLogger('zmachine.object_table')
 screen_logger = logging.getLogger('zmachine.screen')
 output_logger = logging.getLogger('zmachine.output')
 quetzal_logger = logging.getLogger('zmachine.quetzal')
@@ -127,3 +128,4 @@ interpreter_logger = logging.getLogger('zmachine.interpreter')
 error_logger = logging.getLogger('zmachine.error')
 call_stack_logger = logging.getLogger('zmachine.call_stack')
 graphics_logger = logging.getLogger('zmachine.graphics')
+blorb_logger = logging.getLogger('zmachine.blorb')

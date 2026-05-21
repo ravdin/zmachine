@@ -173,8 +173,9 @@ class CursesAdapter:
         curses.noecho()
         curses.cbreak()
 
-    def sound_effect(self, sound_type: int):
-        if sound_type == 1:
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+        # Curses does not support sound effects other than a terminal beep.
+        if number in (1, 2):
             curses.beep()
 
     def shutdown(self):

@@ -82,6 +82,12 @@ class FontEnum(IntEnum):
     GRAPHICS = 3
     COURIER = 4
 
+class SoundEffectEnum(IntEnum):
+    PREPARE = 1
+    PLAY = 2
+    INTERRUPT = 3
+    UNLOAD = 4
+
 class TerminalMapping(NamedTuple):
     escape_sequence: tuple[int, ...]
     zscii_char: int

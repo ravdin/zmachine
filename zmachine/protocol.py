@@ -125,7 +125,7 @@ class IZMachineInterpreter(Protocol):
     def unpack_addr(self, packed_addr: int) -> int:
         ...
 
-    def do_routine(self, call_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
+    def do_routine(self, routine_addr: int, args: tuple[int, ...], routine_type: int = RoutineType.STORE):
         ...
 
     def do_return(self, retval: int):
@@ -218,7 +218,7 @@ class IZMachineInterpreter(Protocol):
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         ...
 
-    def do_sound_effect(self, type: int):
+    def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
         ...
 
     def do_set_color(self, foreground_color: int, background_color: int):
@@ -285,7 +285,7 @@ class IScreen(Protocol):
         If -1, unsplit the screen and erase the entire display, if -2, erase the screen without unsplitting."""
         ...
 
-    def sound_effect(self, type: int): 
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int): 
         """Play a sound effect of the specified type."""
         ...
 
@@ -397,7 +397,7 @@ class ITerminalAdapter(Protocol):
         """Set the character font for output."""
         ...
 
-    def sound_effect(self, sound_type: int):
+    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
         """Play a sound effect of the specified type."""
         ...
 
