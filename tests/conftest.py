@@ -37,7 +37,6 @@ class MockTerminalAdapter:
     def __init__(self, width: int = 80, height: int = 24):
         self._width = width
         self._height = height
-        self.font_size = 0x101
         self.screen_output = []
         self.cursor_pos = (0, 0)
         self.input_chars = []
@@ -57,6 +56,10 @@ class MockTerminalAdapter:
     def width(self) -> int:
         return self._width
     
+    @property
+    def font_size(self) -> int:
+        return 0x101
+
     @property
     def at_wrap_boundary(self) -> bool:
         return self._at_wrap_boundary
@@ -126,23 +129,11 @@ class MockTerminalAdapter:
     
     def apply_style_attributes(self, attributes: int):
         self.style_attributes = attributes
-
-    def is_font_supported(self, font_id: int) -> bool:
-        return False
-    
-    def apply_font(self, font: FontEnum):
-        pass
     
     def apply_color_settings(self, background_color: int, foreground_color: int):
         self.color_pair = (background_color, foreground_color)
     
     def beep(self):
-        pass
-
-    def play_sound_effect(self, number: int, sound_data: bytes, volume: int, repeats: int, routine: int):
-        pass
-
-    def interrupt_sound_effect(self, number: int):
         pass
     
     def shutdown(self):
@@ -151,16 +142,15 @@ class MockTerminalAdapter:
 
 class MockResourceData:
     @property
-    def has_data(self) -> bool:
-        return False
-
-    @property
     def release_number(self) -> int:
         return 0
 
     @property
     def picture_count(self) -> int:
         return 0
+
+    def is_valid_picture(self, number: int) -> bool:
+        return True
 
     def get_picture_data(self, number: int) -> bytes:
         return b''

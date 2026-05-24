@@ -580,7 +580,7 @@ class ZMachineInterpreter:
         elif resource_data.is_valid_picture(number):
             width, height = self.screen.get_picture_size(number)
             self.write_word(array, height)
-            self.write_word(array, width)
+            self.write_word(array + 2, width)
             self.do_branch(True)
         else:
             self.do_branch(False)

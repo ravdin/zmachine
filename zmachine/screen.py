@@ -3,7 +3,7 @@ from .event import EventManager, EventArgs
 from .enums import TextStyle, FontEnum, SoundEffectEnum
 from .protocol import ITerminalAdapter, IGraphicsAdapter, IResourceData
 from .logging import screen_logger as logger
-from .constants import SUPPORTED_VERSIONS, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
+from .constants import SUPPORTED_VERSIONS, PAUSE_DISABLED_SENTINEL, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 from .window import Window
 
 class BaseScreen:
@@ -57,14 +57,14 @@ class BaseScreen:
 
     @property
     def pause_enabled(self) -> bool:
-        return self.active_window.line_count != -999
+        return self.active_window.line_count != PAUSE_DISABLED_SENTINEL
     
     @pause_enabled.setter
     def pause_enabled(self, value: bool):
-        if value and self.active_window.line_count == -999:
+        if value and self.active_window.line_count == PAUSE_DISABLED_SENTINEL:
             self.active_window.line_count = 0
         elif not value:
-            self.active_window.line_count = -999
+            self.active_window.line_count = PAUSE_DISABLED_SENTINEL
 
     @property
     def buffer_mode(self) -> bool:
@@ -153,7 +153,7 @@ class BaseScreen:
             sound_data = self.resource_data.get_sound_data(number)
             if len(sound_data) > 0:
                 graphics_adapter.load_sound_effect(number, sound_data)
-        if effect == SoundEffectEnum.PLAY:
+        elif effect == SoundEffectEnum.PLAY:
             sound_data = self.resource_data.get_sound_data(number)
             if len(sound_data) > 0:
                 graphics_adapter.play_sound_effect(number, sound_data, volume, repeats, routine)
@@ -516,14 +516,10 @@ class ScreenV6(ScreenV5):
         if self.graphics_adapter is None:
             logger.warning("Picture resources are not available")
             return
-        if x == 0 and y == 0:
-            x = self.active_window.x_cursor
-            y = self.active_window.y_cursor
-        else:
-            # Coordinates are 1-indexed in the zmachine but 0-indexed in the interpreter.
-            x = self.active_window.x_pos + x - 1
-            y = self.active_window.y_pos + y - 1
-        self.graphics_adapter.draw_picture(number, y, x, self.resource_data)
+        # Coordinates are 1-indexed in the zmachine but 0-indexed in the interpreter.
+        y_pos = self.active_window.y_cursor if y == 0 else self.active_window.y_pos + y - 1
+        x_pos = self.active_window.x_cursor if x == 0 else self.active_window.x_pos + x - 1
+        self.graphics_adapter.draw_picture(number, y_pos, x_pos, self.resource_data)
 
     def set_mouse_window(self, window_id: int):
         if self.graphics_adapter is None:

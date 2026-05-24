@@ -38,7 +38,7 @@ class BlorbFile:
         
     @property
     def release_number(self) -> int:
-        return self.release_number
+        return self._release_number
     
     @property
     def picture_count(self) -> int:
@@ -68,7 +68,7 @@ class BlorbFile:
                             logger.info(f"Found blorb file {file_path}")
                             try:
                                 return cls(data)
-                            except:
+                            except Exception:
                                 raise InvalidBlorbFileException(str(file_path))
         return cls(b'')
     

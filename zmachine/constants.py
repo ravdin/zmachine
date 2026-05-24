@@ -1,7 +1,7 @@
 from typing import Final
 from .enums import Color, StoryEnum
 
-SUPPORTED_VERSIONS: Final[tuple[int, ...]] = (3, 4, 5, 6)
+SUPPORTED_VERSIONS: Final[tuple[int, ...]] = (3, 4, 5)
 
 # Interpreter identification
 INTERPRETER_REVISION: Final[int] = 0x101 # Write this as revision 1.1
@@ -16,6 +16,7 @@ MAX_STACK_LENGTH: Final[int] = 1024
 DEFAULT_FOREGROUND_COLOR: Final[Color] = Color.WHITE
 DEFAULT_BACKGROUND_COLOR: Final[Color] = Color.BLACK
 DEFAULT_FONT_SIZE: Final[int] = 20
+PAUSE_DISABLED_SENTINEL: Final[int] = -999
 
 IFF_HEADER: Final[bytes] = bytes('FORM'.encode('UTF-8'))
 IFZS_ID: Final[bytes] = bytes('IFZS'.encode('UTF-8'))
