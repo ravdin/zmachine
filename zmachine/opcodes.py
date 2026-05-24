@@ -3,7 +3,7 @@ import time
 from typing import Protocol, runtime_checkable
 from functools import wraps
 from .protocol import IZMachineInterpreter
-from .enums import RoutineType
+from .enums import RoutineType, PackedAddressType
 from .error import *
 
 @runtime_checkable
@@ -156,8 +156,12 @@ class Opcode:
             cls(op_log_shift, 2, 5),
             cls(op_art_shift, 3, 5),
             cls(op_set_font, 4, 5),
+            cls(op_draw_picture, 5, 6),
+            cls(op_picture_data, 6, 6),
             cls(op_save_undo, 9, 5),
-            cls(op_restore_undo, 10, 5)
+            cls(op_restore_undo, 10, 5),
+            cls(op_get_wind_prop, 19, 6),
+            cls(op_mouse_window, 23, 6)
         ]
 
 
@@ -401,7 +405,7 @@ def op_jump(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_print_paddr(zm: IZMachineInterpreter, *operands: int):
-    addr = zm.unpack_addr(operands[0])
+    addr = zm.unpack_addr(operands[0], PackedAddressType.STRING)
     zm.print_from_addr(addr)
 
 
@@ -578,30 +582,31 @@ def op_pull(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_split_window(zm: IZMachineInterpreter, *operands: int):
-    zm.do_split_window(operands[0])
+    zm.screen.split_window(operands[0])
 
 
 def op_set_window(zm: IZMachineInterpreter, *operands: int):
-    zm.do_set_window(operands[0])
+    zm.screen.set_window(operands[0])
 
 
 @signed_operands
 def op_erase_window(zm: IZMachineInterpreter, *operands: int):
-    zm.do_erase_window(operands[0])
+    zm.screen.erase_window(operands[0])
 
 
 def op_set_cursor(zm: IZMachineInterpreter, *operands: int):
     y, x = operands
-    zm.do_set_cursor(y, x)
+    # The z-machine standard is 1-indexed for cursor positions, but the interpreter's screen coordinates are 0-indexed.
+    zm.screen.set_cursor(y - 1, x - 1)
 
 
 def op_set_text_style(zm: IZMachineInterpreter, *operands: int):
-    zm.do_set_text_style(operands[0])
+    zm.screen.set_text_style(operands[0])
 
 
 def op_buffer_mode(zm: IZMachineInterpreter, *operands: int):
     mode: bool = operands[0] != 0
-    zm.do_set_buffer_mode(mode)
+    zm.screen.buffer_mode = mode
 
 
 def op_output_stream(zm: IZMachineInterpreter, *operands: int):
@@ -644,7 +649,10 @@ def op_call_vn(zm: IZMachineInterpreter, *operands: int):
 
 
 def op_set_color(zm: IZMachineInterpreter, *operands: int):
-    zm.do_set_color(foreground_color=operands[0], background_color=operands[1])
+    foreground_color = operands[0]
+    background_color = operands[1]
+    window_id = -1 if len(operands) < 3 else operands[2]
+    zm.screen.set_color(foreground_color=foreground_color, background_color=background_color, window_id=window_id)
 
 
 def op_call_vn2(zm: IZMachineInterpreter, *operands: int):
@@ -709,8 +717,22 @@ def op_art_shift(zm: IZMachineInterpreter, *operands: int):
     zm.do_store(number)
 
 
+@signed_operands
 def op_set_font(zm: IZMachineInterpreter, *operands: int):
-    zm.do_set_font(operands[0])
+    font_id = operands[0]
+    # -3 is the currently selected window.
+    window_id = -3 if len(operands) < 2 else operands[1]
+    store_val = zm.screen.set_font(font_id, window_id)
+    zm.do_store(store_val)
+
+
+@signed_operands
+def op_draw_picture(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.draw_picture(*operands)
+
+
+def op_picture_data(zm: IZMachineInterpreter, *operands: int):
+    zm.do_get_picture_data(*operands)
 
 
 def op_save_undo(zm: IZMachineInterpreter, *operands: int):
@@ -719,3 +741,13 @@ def op_save_undo(zm: IZMachineInterpreter, *operands: int):
 
 def op_restore_undo(zm: IZMachineInterpreter, *operands: int):
     zm.do_restore_undo()
+
+
+@signed_operands
+def op_get_wind_prop(zm: IZMachineInterpreter, *operands: int):
+    result = zm.screen.get_window_property(*operands)
+    zm.do_store(result)
+
+@signed_operands
+def op_mouse_window(zm: IZMachineInterpreter, *operands: int):
+    zm.screen.set_mouse_window(operands[0])

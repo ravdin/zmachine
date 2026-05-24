@@ -20,8 +20,8 @@ class CallStack:
         # The dummy frame should be set for versions 1-5.
         # For these versions the game starts with an evaluation stack that can
         # be used outside a routine.
-        # If this interpreter is ever updated for version 6, then the game will start
-        # with a main routine instead of an initial instruction.
+        # In version 6, the game will start with a main routine instead of 
+        # an initial instruction.
         self.frames: List[StackFrame] = []
         self.has_dummy_frame = dummy_frame
         self.frame_ptr = 0

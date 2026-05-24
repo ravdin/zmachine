@@ -1,3 +1,4 @@
+from pathlib import Path
 from .screen import *
 from .enums import UIType
 from .curses import CursesAdapter
@@ -10,6 +11,7 @@ from .hotkey import HotkeyHandler
 from .protocol import ITerminalAdapter, IScreen
 from .quetzal import Quetzal
 from .interpreter import ZMachineInterpreter
+from .blorb import BlorbFile
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .error import ZMachineException
@@ -23,7 +25,7 @@ class ZMachineBuilder:
         memory_map = MemoryMap(config, ui_type == UIType.GRAPHICS)
         runtime_settings = RuntimeSettings(memory_map)
         terminal_adapter = self._initialize_terminal(ui_type, event_manager, config, runtime_settings)
-        screen = self._initialize_screen(config.version, terminal_adapter, event_manager)
+        screen = self._initialize_screen(config, terminal_adapter, event_manager)
         quetzal = Quetzal(memory_map, config, terminal_adapter)
         self._initialize_header(memory_map, terminal_adapter, config.version)
         output_stream_manager = OutputStreamManager(screen, memory_map, terminal_adapter, config, runtime_settings, event_manager)
@@ -47,26 +49,31 @@ class ZMachineBuilder:
         config: ZMachineConfig,
         runtime_settings: RuntimeSettings
     ) -> ITerminalAdapter:
-        if ui_type == UIType.TEXT:
+        if ui_type == UIType.TEXT and config.version <= 5:
             return CursesAdapter()
-        if ui_type == UIType.GRAPHICS:
+        if ui_type == UIType.GRAPHICS or config.version == 6:
             return GraphicsAdapter(event_manager = event_manager, config = config, runtime_settings = runtime_settings)
         raise ZMachineException("Unrecognized UI type")
 
     @staticmethod
-    def _initialize_screen(version: int, terminal_adapter: ITerminalAdapter, event_manager: EventManager) -> IScreen:
+    def _initialize_screen(config: ZMachineConfig, terminal_adapter: ITerminalAdapter, event_manager: EventManager) -> IScreen:
+        version = config.version
+        game_file_path = Path(config.game_file).parent
+        resource_data = BlorbFile.detect_blorb_file(str(game_file_path))
         if version == 3:
-            return ScreenV3(terminal_adapter, event_manager)
+            return ScreenV3(terminal_adapter, resource_data, event_manager)
         if version == 4:
-            return ScreenV4(terminal_adapter, event_manager)
+            return ScreenV4(terminal_adapter, resource_data, event_manager)
         if version == 5:
-            return ScreenV5(terminal_adapter, event_manager)
+            return ScreenV5(terminal_adapter, resource_data, event_manager)
+        if version == 6:
+            return ScreenV6(terminal_adapter, resource_data, event_manager)
         raise ZMachineException("Unrecognized configuration")
     
     @staticmethod
     def _initialize_header(memory_map: MemoryMap,
                            terminal_adapter: ITerminalAdapter,
-                           version: int) -> None:
+                           version: int):
         """Write runtime configuration to game memory header.
         
         This must happen after screen initialization but before

@@ -123,7 +123,7 @@ class TranscriptStream(OutputStream):
 
     def write(self, text: str, newline: bool):
         self.is_active = self.runtime_settings.transcript_active_flag
-        if not self.is_active or self.screen.active_window_id != WindowPosition.LOWER:
+        if not (self.is_active and self.screen.transcript_output_enabled):
             return
         if self.script_full_path is None:
             self.script_full_path = self.prompt_transcript_file()

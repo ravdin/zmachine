@@ -42,10 +42,6 @@ class MemoryMap:
     def word_addr(self, ptr) -> int:
         return self.read_word(ptr) << 1
 
-    def unpack_addr(self, packed_addr: int) -> int:
-        shift = 1 if self._version <= 3 else 2
-        return packed_addr << shift
-
     def read_byte(self, addr: int) -> int:
         if logger.isEnabledFor(LogLevel.DEBUG):
             logger.debug(f"READ 0x{addr:04X}")

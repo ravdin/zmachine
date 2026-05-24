@@ -79,11 +79,11 @@ class TestScreenErrorHandling:
         self.event_manager = EventManager()
     
     @pytest.mark.unit
-    def test_unsupported_operations_raise_not_implemented(self, mock_terminal_adapter):
+    def test_unsupported_operations_raise_not_implemented(self, mock_terminal_adapter, mock_resource_data):
         """Unsupported operations should raise NotImplementedError."""
         from zmachine.screen import BaseScreen
         
-        screen = BaseScreen(mock_terminal_adapter, self.event_manager)
+        screen = BaseScreen(mock_terminal_adapter, mock_resource_data, self.event_manager)
         
         # These operations are not implemented in base screen
         with pytest.raises(NotImplementedError):
@@ -93,7 +93,7 @@ class TestScreenErrorHandling:
             screen.set_text_style(0)
         
         with pytest.raises(NotImplementedError):
-            screen.set_color(0, 0)
+            screen.set_color(0, 0, -1)
         
         with pytest.raises(NotImplementedError):
             screen.print_table([])
@@ -102,21 +102,21 @@ class TestScreenErrorHandling:
             screen.refresh_status_line("", "")
     
     @pytest.mark.unit
-    def test_invalid_window_id_raises(self, mock_terminal_adapter):
+    def test_invalid_window_id_raises(self, mock_terminal_adapter, mock_resource_data):
         """Invalid window ID should raise InvalidScreenOperationException."""
         from zmachine.screen import ScreenV4
         
-        screen = ScreenV4(mock_terminal_adapter, self.event_manager)
+        screen = ScreenV4(mock_terminal_adapter, mock_resource_data, self.event_manager)
         
         with pytest.raises(InvalidScreenOperationException):
             screen.set_window(999)  # Invalid window ID
     
     @pytest.mark.unit
-    def test_cursor_out_of_bounds_raises(self, mock_terminal_adapter):
+    def test_cursor_out_of_bounds_raises(self, mock_terminal_adapter, mock_resource_data):
         """Cursor movement outside screen bounds should raise error."""
         from zmachine.screen import ScreenV4
         
-        screen = ScreenV4(mock_terminal_adapter, self.event_manager)
+        screen = ScreenV4(mock_terminal_adapter, mock_resource_data, self.event_manager)
         screen.set_window(1)  # Upper window (allows cursor movement)
         
         with pytest.raises(InvalidScreenOperationException):
@@ -247,13 +247,13 @@ class TestEdgeCases:
             stack.pop_value()
     
     @pytest.mark.unit
-    def test_window_split_to_zero(self, mock_terminal_adapter):
+    def test_window_split_to_zero(self, mock_terminal_adapter, mock_resource_data):
         """Splitting window to 0 lines should work."""
         from zmachine.screen import ScreenV4
         from zmachine.event import EventManager
         
         event_manager = EventManager()
-        screen = ScreenV4(mock_terminal_adapter, event_manager)
+        screen = ScreenV4(mock_terminal_adapter, mock_resource_data, event_manager)
         
         # Split to 0 should work (unsplit)
         screen.split_window(0)
@@ -261,13 +261,13 @@ class TestEdgeCases:
         assert screen.upper_window.height == 0
     
     @pytest.mark.unit
-    def test_window_split_to_full_height(self, mock_terminal_adapter):
+    def test_window_split_to_full_height(self, mock_terminal_adapter, mock_resource_data):
         """Splitting window to full height should work."""
         from zmachine.screen import ScreenV4
         from zmachine.event import EventManager
         
         event_manager = EventManager()
-        screen = ScreenV4(mock_terminal_adapter, event_manager)
+        screen = ScreenV4(mock_terminal_adapter, mock_resource_data, event_manager)
         
         # Split to full height
         screen.split_window(mock_terminal_adapter.height)
@@ -281,13 +281,13 @@ class TestErrorRecovery:
     """Test error recovery and graceful degradation."""
     
     @pytest.mark.unit
-    def test_continue_after_invalid_operation(self, mock_terminal_adapter):
+    def test_continue_after_invalid_operation(self, mock_terminal_adapter, mock_resource_data):
         """System should continue working after invalid operation."""
         from zmachine.screen import ScreenV4
         from zmachine.event import EventManager
         
         event_manager = EventManager()
-        screen = ScreenV4(mock_terminal_adapter, event_manager)
+        screen = ScreenV4(mock_terminal_adapter, mock_resource_data, event_manager)
         screen.buffer_mode = False
         
         # Try invalid operation

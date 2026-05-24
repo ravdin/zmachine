@@ -7,7 +7,7 @@ from .event import EventArgs, EventManager, MouseClickEventArgs, RoutineCallEven
 from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
 from .undo import UndoStack
-from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType
+from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType, PackedAddressType
 from .stack import CallStack, EvalStack
 from .logging import LogLevel, opcodes_logger, interpreter_logger
 from .error import *
@@ -26,17 +26,17 @@ class ZMachineInterpreter:
         self.memory_map = memory_map
         self.config = config
         self.runtime_settings = runtime_settings
-        self.screen = screen
+        self._screen = screen
         self.input_source = input_source
         self.output_manager = output_manager
         self.event_manager = event_manager
-        self.pc = self.config.initial_pc
+        self.pc = self.config.initial_pc if self.version < 6 else 0
         self.text_utils = TextUtils(memory_map, config)
         self.quetzal = quetzal
         self._object_table = ObjectTable(memory_map, config)
         self.opcodes = opcodes.get_opcodes(self.version)
         self.extended_opcodes = opcodes.get_extended_opcodes(self.version)
-        self.call_stack = CallStack()
+        self.call_stack = self.init_call_stack()
         self.undo_stack = UndoStack()
         self.text_buffer = [0] * 240
         self.quit = False
@@ -56,6 +56,26 @@ class ZMachineInterpreter:
     @property
     def object_table(self) -> IObjectTable:
         return self._object_table
+    
+    @property
+    def screen(self) -> IScreen:
+        return self._screen
+    
+    def init_call_stack(self) -> CallStack:
+        if self.version < 6:
+            return CallStack()
+        result = CallStack(dummy_frame=False)
+        routine_addr = self.unpack_addr(self.config.initial_pc)
+        num_locals = self.read_byte(routine_addr)
+        result.push(
+            return_pc = 0,
+            store_varnum = 0,
+            local_vars = [0] * num_locals,
+            arg_count = 0,
+            routine_type = RoutineType.DISCARD
+        )
+        self.pc = routine_addr + 1
+        return result
 
     def do_run(self):
         try:
@@ -236,7 +256,7 @@ class ZMachineInterpreter:
                     if opname == 'PRINT_ADDR':
                         addr = operands[0]
                     elif opname == 'PRINT_PADDR':
-                        addr = self.unpack_addr(operands[0])
+                        addr = self.unpack_addr(operands[0], PackedAddressType.STRING)
                     elif opname in ('PRINT', 'PRINT_RET'):
                         addr = self.pc
                     if addr != 0:
@@ -275,15 +295,21 @@ class ZMachineInterpreter:
             self.pc += 1
         return result
 
-    def write_byte(self, addr, val):
+    def write_byte(self, addr: int, val: int):
         self.memory_map.write_byte(addr, val)
 
-    def write_word(self, addr, val):
+    def write_word(self, addr: int, val: int):
         self.memory_map.write_word(addr, val)
 
-    def unpack_addr(self, packed_addr):
+    def unpack_addr(self, packed_addr: int, addr_type: int = PackedAddressType.ROUTINE):
         shift = 1 if self.version <= 3 else 2
-        return packed_addr << shift
+        offset = 0
+        if self.version >= 6:
+            if addr_type == PackedAddressType.ROUTINE:
+                offset = self.config.routine_offset
+            elif addr_type == PackedAddressType.STRING:
+                offset = self.config.strings_offset
+        return (packed_addr << shift) + offset
 
     def read_byte(self, ptr):
         return self.memory_map.read_byte(ptr)
@@ -515,25 +541,6 @@ class ZMachineInterpreter:
         for i in range(byte_len):
             self.write_byte(coded_buffer + i, encoded[i])
 
-    def do_split_window(self, lines: int):
-        self.screen.split_window(lines)
-
-    def do_set_window(self, window_id: int):
-        self.screen.set_window(window_id)
-    
-    def do_erase_window(self, window_id: int):
-        self.screen.erase_window(window_id)
-    
-    def do_set_cursor(self, y: int, x: int):
-        # The z-machine standard is 1-indexed for cursor positions, but the interpreter's screen coordinates are 0-indexed.
-        self.screen.set_cursor(y - 1, x - 1)
-
-    def do_set_text_style(self, style: int):
-        self.screen.set_text_style(style)
-
-    def do_set_buffer_mode(self, mode: bool):
-        self.screen.buffer_mode = mode
-
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
         interpreter_logger.info(f"Selecting output stream {stream_id}")
         if abs(stream_id) == OutputStreamType.SCREEN:
@@ -564,12 +571,19 @@ class ZMachineInterpreter:
             repeats = 1
         self.screen.sound_effect(number, effect, volume_level, repeats, callback_addr)
 
-    def do_set_color(self, foreground_color: int, background_color: int):
-        self.screen.set_color(background_color, foreground_color)
-
-    def do_set_font(self, font_id: int):
-        store_val = self.screen.set_font(font_id)
-        self.do_store(store_val)
+    def do_get_picture_data(self, number: int, array: int):
+        resource_data = self.screen.resource_data
+        if number == 0:
+            self.write_word(array, resource_data.picture_count)
+            self.write_word(array + 2, resource_data.release_number)
+            self.do_branch(resource_data.picture_count > 0)
+        elif resource_data.is_valid_picture(number):
+            width, height = self.screen.get_picture_size(number)
+            self.write_word(array, height)
+            self.write_word(array + 2, width)
+            self.do_branch(True)
+        else:
+            self.do_branch(False)
 
     def write_to_output_streams(self, text, newline=False):
         self.output_manager.write_to_streams(text, newline)

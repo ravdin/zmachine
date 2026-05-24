@@ -15,6 +15,8 @@ MAX_STACK_LENGTH: Final[int] = 1024
 # Screen defaults
 DEFAULT_FOREGROUND_COLOR: Final[Color] = Color.WHITE
 DEFAULT_BACKGROUND_COLOR: Final[Color] = Color.BLACK
+DEFAULT_FONT_SIZE: Final[int] = 20
+PAUSE_DISABLED_SENTINEL: Final[int] = -999
 
 IFF_HEADER: Final[bytes] = bytes('FORM'.encode('UTF-8'))
 IFZS_ID: Final[bytes] = bytes('IFZS'.encode('UTF-8'))

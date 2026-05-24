@@ -11,12 +11,13 @@ import sys
 import io
 import numpy as np
 from dataclasses import dataclass
-from .blorb import BlorbFile
+from .protocol import IResourceData
 from .event import EventManager, MouseClickEventArgs, RoutineCallEventArgs
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
-from .enums import FontEnum, FunctionKey, StoryEnum, MouseClick, SoundEffectEnum
-from .constants import FONT3_BITMAP
+from .enums import Color, FontEnum, FunctionKey, StoryEnum, MouseClick
+from .constants import FONT3_BITMAP, DEFAULT_FONT_SIZE
+from .error import InvalidPictureResourceException
 from .logging import graphics_logger as logger
 
 
@@ -66,14 +67,14 @@ class GraphicsAdapter:
         self._mouse_enabled = runtime_settings.mouse_enabled
         self._at_wrap_boundary = False
         self.current_font = FontEnum.DEFAULT
-        self.beep = self._make_beep()
+        self.beep_sound = self._make_beep()
         pygame.key.set_repeat(500, 100)  # 500ms delay, then repeat every 100ms
         title = "Z-Machine Interpreter" if config.story == StoryEnum.UNKNOWN else config.story
         pygame.display.set_caption(f"{title}")
         
         # Font setup - try monospace first
         try:
-            self.font = pygame.font.SysFont('courier', 20)
+            self.font = pygame.font.SysFont('courier', DEFAULT_FONT_SIZE)
             logger.debug("Using Courier font")
         except:
             self.font = pygame.font.Font(None, 16)
@@ -109,16 +110,16 @@ class GraphicsAdapter:
         # Input timeout (milliseconds)
         self.input_timeout_ms = 0
 
-        # Configure blorb resources, if applicable.
-        self.blorb_file: BlorbFile | None = None
-        self.sound_channel: pygame.mixer.Channel | None = None
+        # Mouse boundaries (top, left, bottom, right)
+        self.mouse_boundary = (0, 0, self.height, self.width)
+
+        # Configure sound resources.
+        self.sound_channel = pygame.mixer.Channel(0)
+        self.sound_channel.set_endevent(self.SOUND_END_EVENT)
         self._pending_routine: int = 0
         self._sound_interrupted: bool = False
+        self._current_sound_number: int = 0
         self._sound_resources: dict[int, pygame.mixer.Sound] = {}
-        if config.blorb_file_path:
-            self.blorb_file = BlorbFile(config.blorb_file_path)
-            self.sound_channel = pygame.mixer.Channel(0)
-            self.sound_channel.set_endevent(self.SOUND_END_EVENT)
         
         # Clear screen
         self.screen.fill(self.current_bg)
@@ -139,6 +140,10 @@ class GraphicsAdapter:
     def width(self) -> int:
         """The width of the terminal in characters."""
         return self._width
+    
+    @property
+    def font_size(self) -> int:
+        return (self.char_height << 8) | self.char_width
     
     @property
     def at_wrap_boundary(self) -> bool:
@@ -209,6 +214,7 @@ class GraphicsAdapter:
                         routine_call_event_args = RoutineCallEventArgs(self._pending_routine)
                         self.event_manager.on_routine_call.invoke(self, routine_call_event_args)
                         self._pending_routine = 0
+                    self._current_sound_number = 0
                     continue
                 
                 if event.type == pygame.KEYDOWN:
@@ -250,7 +256,11 @@ class GraphicsAdapter:
                 
                 if event.type == pygame.MOUSEBUTTONDOWN and self._mouse_enabled:
                     pixel_x, pixel_y = pygame.mouse.get_pos()
-                    event_args = MouseClickEventArgs(pixel_x // self.char_width, pixel_y // self.char_height)
+                    x, y = pixel_x // self.char_width, pixel_y // self.char_height
+                    boundary_top, boundary_left, boundary_bottom, boundary_right = self.mouse_boundary
+                    if x < boundary_left or x >= boundary_right or y < boundary_top or y >= boundary_bottom:
+                        continue
+                    event_args = MouseClickEventArgs(x_coordinate=x, y_coordinate=y)
                     self.event_manager.on_mouse_click.invoke(self, event_args)
                     return MouseClick.SINGLE_CLICK
                 
@@ -369,20 +379,22 @@ class GraphicsAdapter:
             y = y_pos * self.char_height
             self._render_cell(y_pos, x_pos, x, y)
     
-    def erase_screen(self):
+    def erase_screen(self, background_color: int = Color.BLACK):
         """Erase the entire terminal screen."""
         logger.debug("Erase screen")
         
         self.screen_buffer = [[Cell() for _ in range(self._width)] 
                              for _ in range(self._height)]
-        self.screen.fill((0, 0, 0))
+        self.screen.fill(self._zcolor_to_rgb(background_color))
         self.cursor_x = 0
         self.cursor_y = 0
         self.refresh()
     
-    def erase_window(self, top: int, height: int):
+    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
         """Erase a portion of the screen."""
         logger.debug(f"Erase window: top={top}, height={height}")
+
+        color = self._zcolor_to_rgb(background_color)
         
         for row in range(top, min(top + height, self._height)):
             self.screen_buffer[row] = [Cell() for _ in range(self._width)]
@@ -390,7 +402,7 @@ class GraphicsAdapter:
         pixel_y = top * self.char_height
         pixel_height = height * self.char_height
         erase_rect = pygame.Rect(0, pixel_y, self.window_width, pixel_height)
-        pygame.draw.rect(self.screen, (0, 0, 0), erase_rect)
+        pygame.draw.rect(self.screen, color, erase_rect)
         self.refresh()
     
     def clear_to_eol(self):
@@ -420,6 +432,18 @@ class GraphicsAdapter:
         self.current_bg = self._zcolor_to_rgb(background_color)
         self.current_fg = self._zcolor_to_rgb(foreground_color)
 
+    def beep(self):
+        self.beep_sound.play()
+
+    def shutdown(self):
+        """Cleanup pygame resources."""
+        logger.info("Shutting down graphics adapter")
+        pygame.quit()
+
+    # ========================================================================
+    # IGraphicsAdapter Protocol Implementation (duck typing)
+    # ========================================================================
+
     def is_font_supported(self, font_id: int) -> bool:
         if font_id == FontEnum.PICTURE or font_id not in FontEnum:
             return False
@@ -427,47 +451,63 @@ class GraphicsAdapter:
 
     def apply_font(self, font: FontEnum):
         self.current_font = font
+
+    def get_picture_size(self, number: int, resource_data: IResourceData) -> tuple[int, int]:
+        """Get the width and height of a picture resource."""
+        if not resource_data.is_valid_picture(number):
+            return (0, 0)
+        picture_data = resource_data.get_picture_data(number)
+        surface = pygame.image.load(io.BytesIO(picture_data))
+        return surface.get_size()
     
-    def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int):
+    def draw_picture(self, number: int, y: int, x: int, resource_data: IResourceData):
+        picture_data = resource_data.get_picture_data(number)
+        if len(picture_data) == 0:
+            raise InvalidPictureResourceException(number)
+        
+        pixel_x = x * self.char_width
+        pixel_y = y * self.char_height
+        # TODO: Would probably be good to cache this.
+        surface = pygame.image.load(io.BytesIO(picture_data))
+        self.screen.blit(surface, (pixel_x, pixel_y))
+
+    def load_sound_effect(self, number: int, sound_data: bytes):
+        if number not in self._sound_resources and len(sound_data) > 0:
+            self._sound_resources[number] = pygame.mixer.Sound(io.BytesIO(sound_data))
+    
+    def play_sound_effect(self, number: int, sound_data: bytes, volume: int, repeats: int, routine: int):
         """Play a sound effect."""
-        logger.debug(f"Sound effect: number {number}, effect {effect}, volume {volume}, repeats {repeats}, routine {routine}")
-        if number in (1, 2):
-            self.beep.play()
+        logger.debug(f"Play sound effect: number {number}, volume {volume}, repeats {repeats}, routine {routine}")
+
+        if pygame.mixer.get_busy():
+            self.interrupt_sound_effect(0)
+        self.load_sound_effect(number, sound_data)
+        if number not in self._sound_resources:
             return
-        if self.sound_channel is None:
-            return
-        elif effect == SoundEffectEnum.PREPARE:
-            self._load_sound(number)
-        elif effect == SoundEffectEnum.PLAY:
-            if number not in self._sound_resources:
-                self._load_sound(number)
-            if number not in self._sound_resources:
-                return
-            if pygame.mixer.get_busy():
-                self._sound_interrupted = True
-            sound = self._sound_resources[number]
-            if volume < 0:
-                sound.set_volume(1.0)
-            else:
-                sound.set_volume(volume / 8.0)
-            loops = repeats if repeats <= 0 else repeats - 1
-            self.sound_channel.play(sound, loops = loops)
-            self._pending_routine = routine
-        elif effect in (SoundEffectEnum.INTERRUPT, SoundEffectEnum.UNLOAD):
+        sound = self._sound_resources[number]
+        if volume < 0:
+            sound.set_volume(1.0)
+        else:
+            sound.set_volume(volume / 8.0)
+        loops = repeats if repeats <= 0 else repeats - 1
+        self.sound_channel.play(sound, loops = loops)
+        self._pending_routine = routine
+        self._current_sound_number = number
+
+    def interrupt_sound_effect(self, number: int):
+        if number in (0, self._current_sound_number):
             self._sound_interrupted = True
-            if number == 0:
-                self.sound_channel.stop()
-                if effect == SoundEffectEnum.UNLOAD:
-                    self._sound_resources.clear()
-            elif number in self._sound_resources:
-                self._sound_resources[number].stop()
-                if effect == SoundEffectEnum.UNLOAD:
-                    del self._sound_resources[number]
-    
-    def shutdown(self):
-        """Cleanup pygame resources."""
-        logger.info("Shutting down graphics adapter")
-        pygame.quit()
+            self.sound_channel.stop()
+
+    def unload_sound_effect(self, number: int):
+        self.interrupt_sound_effect(number)
+        if number == 0:
+            self._sound_resources.clear()
+        elif number in self._sound_resources:
+            del self._sound_resources[number]
+
+    def set_mouse_boundary(self, top: int, left: int, bottom: int, right: int):
+        self.mouse_boundary = (top, left, bottom, right)
     
     # ========================================================================
     # Internal Helper Methods
@@ -597,19 +637,19 @@ class GraphicsAdapter:
     def _zcolor_to_rgb(self, zcolor: int) -> tuple:
         """Convert Z-Machine color code to RGB tuple."""
         colors = {
-            2: (0, 0, 0),         # Black
-            3: (248, 0, 0),       # Red
-            4: (0, 236, 0),       # Green
-            5: (248, 248, 0),     # Yellow
-            6: (0, 173, 219),     # Blue
-            7: (255, 0, 255),     # Magenta
-            8: (0, 248, 248),     # Cyan
-            9: (255, 255, 255),   # White
-            10: (219, 219, 219),  # Light gray
-            11: (195, 195, 195),  # Medium gray
-            12: (161, 161, 161)   # Dark gray
+            Color.BLACK:       (0, 0, 0),
+            Color.RED:         (248, 0, 0),
+            Color.GREEN:       (0, 236, 0),
+            Color.YELLOW:      (248, 248, 0),
+            Color.BLUE:        (0, 173, 219),
+            Color.MAGENTA:     (255, 0, 255),
+            Color.CYAN:        (0, 248, 248),
+            Color.WHITE:       (255, 255, 255),
+            Color.LIGHT_GRAY:  (219, 219, 219),
+            Color.MEDIUM_GRAY: (195, 195, 195),
+            Color.DARK_GRAY:   (161, 161, 161)
         }
-        return colors.get(zcolor, (219, 219, 219))
+        return colors.get(Color(zcolor), (219, 219, 219))
     
     def _render_font3(self, row: int, col: int, left: int, top: int):
         cell = self.screen_buffer[row][col]
@@ -650,12 +690,3 @@ class GraphicsAdapter:
         stereo = np.column_stack([wave, wave])
         
         return pygame.sndarray.make_sound(stereo)
-
-    def _load_sound(self, number: int):
-        if self.blorb_file is None:
-            return
-        sound_data = self.blorb_file.get_sound_data(number)
-        if len(sound_data) == 0:
-            logger.warning(f"Sound data not found for requested number {number}")
-        else:
-            self._sound_resources[number] = pygame.mixer.Sound(io.BytesIO(sound_data))
