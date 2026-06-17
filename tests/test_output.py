@@ -101,7 +101,7 @@ class TestOutputStreamManager:
         
         # Open with table address
         table_addr = 0x1000
-        manager.memory_stream.open(table_addr)
+        manager.memory_stream.open(table_addr, False, 0)
         
         # Should now be active
         assert manager.memory_stream.is_active
@@ -210,7 +210,7 @@ class TestMemoryStream:
         stream = MemoryStream(memory_map)
         
         table_addr = 0x1000
-        stream.open(table_addr)
+        stream.open(table_addr, False, 0)
         
         # Write some text
         test_text = "Hello"
@@ -228,11 +228,11 @@ class TestMemoryStream:
         max_depth = 16  # Typical Z-Machine limit
         
         for i in range(max_depth):
-            stream.open(0x1000 + i * 0x100)
+            stream.open(0x1000 + i * 0x100, False, 0)
         
         # One more should raise
         with pytest.raises(StreamException):
-            stream.open(0x2000)
+            stream.open(0x2000, False, 0)
 
 
 @pytest.mark.integration

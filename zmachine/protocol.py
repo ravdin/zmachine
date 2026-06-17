@@ -97,7 +97,14 @@ class IResourceData(Protocol):
     def picture_count(self) -> int:
         ...
 
+    def get_scaling_ratio(self, number: int, window_width: int, window_height: int) -> float:
+        """Calculate a scaling factor when rendering images in a window."""
+        ...
+
     def is_valid_picture(self, number: int) -> bool:
+        ...
+
+    def is_adaptive_picture(self, number: int) -> bool:
         ...
 
     def get_picture_data(self, number: int) -> bytes:
@@ -158,6 +165,12 @@ class IZMachineInterpreter(Protocol):
         ...
 
     def get_arg_count(self) -> int:
+        ...
+
+    def do_catch(self):
+        ...
+    
+    def do_throw(self, return_value: int, frame_id: int):
         ...
 
     def do_jump(self, offset: int):
@@ -223,7 +236,7 @@ class IZMachineInterpreter(Protocol):
     def do_encode_text(self, text_addr: int, length: int, start: int, coded_buffer: int):
         ...
 
-    def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+    def do_select_output_stream(self, stream_id: int, table_addr: int = 0, buffering: bool = False, width: int = 0):
         ...
 
     def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):
@@ -241,14 +254,8 @@ class IScreen(Protocol):
     This is the minimal interface required by the interpreter.
     Version-specific methods (colors, graphics) are optional extensions.
     """
-    @property
-    def buffer_mode(self) -> bool:
-        """Whether the screen is in buffered mode."""
-        ...
-
-    @buffer_mode.setter
-    def buffer_mode(self, value: bool):
-        """Set the screen's buffered mode."""
+    def set_buffer_mode(self, value: bool):
+        """Buffer text for delayed output."""
         ...
 
     @property
@@ -263,13 +270,17 @@ class IScreen(Protocol):
 
     @property
     def transcript_output_enabled(self) -> bool:
-        """Indicates that transcript output is enabled in the active window."""
+        """Indicates that output to the currently active window will write to the transcript stream,
+        if the transcript stream is enabled."""
         ...
 
     @property
     def resource_data(self) -> IResourceData:
         """Expose the underlying resources for reading."""
         ...
+
+    def restart_screen(self):
+        """Re-initialize screen settings on a restart."""
 
     def refresh_status_line(self, location: str, status: str):
         """Refresh the status line with the given text (v3 only)."""
@@ -296,11 +307,20 @@ class IScreen(Protocol):
         If -1, unsplit the screen and erase the entire display, if -2, erase the screen without unsplitting."""
         ...
 
+    def erase_line(self, value: int):
+        """V4/V5: Erase from the cursor to the end of the line, if the value is 1.
+        V6: Erase the given number of pixels, or to the end of the line if the value is 1."""
+        ...
+
     def sound_effect(self, number: int, effect: int, volume: int, repeats: int, routine: int): 
         """Play a sound effect of the specified type."""
         ...
 
-    def set_cursor(self, y_pos: int, x_pos: int):
+    def get_cursor(self) -> tuple[int, int]:
+        """Get the current cursor row and column."""
+        ...
+
+    def set_cursor(self, y_cursor: int, x_cursor: int, window_id = -3):
         """Set the cursor position."""
         ...
 
@@ -308,11 +328,11 @@ class IScreen(Protocol):
         """Set the text style (reverse background, underline, bold)."""
         ...
 
-    def set_color(self, background_color: int, foreground_color: int, window_id: int):
+    def set_color(self, foreground_color: int, background_color: int, window_id: int = -3):
         """Set the colors of the active window."""
         ...
 
-    def set_font(self, font_id: int, window_id: int) -> int:
+    def set_font(self, font_id: int, window_id: int = -3) -> int:
         """Set the font of the output character."""
         ...
 
@@ -336,8 +356,35 @@ class IScreen(Protocol):
         """Draw a picture from the resource data."""
         ...
 
+    def erase_picture(self, number: int, y: int = 0, x: int = 0):
+        """Paint the appropriate region of the screen to the background color."""
+
     def set_mouse_window(self, window_id: int):
         """Restrict mouse input to the boundaries of the given window."""
+        ...
+
+    def set_cursor_enabled(self, value: bool):
+        """Enable or disable the cursor."""
+        ...
+
+    def set_margins(self, left: int, right: int, window_id: int = -3):
+        """Set the left and right margin positions for a window."""
+        ...
+
+    def move_window(self, window_id: int, y: int, x: int):
+        """Move a window position."""
+        ...
+
+    def resize_window(self, window_id: int, y: int, x: int):
+        """Resize a window."""
+        ...
+
+    def scroll_window(self, window_id: int, pixels: int):
+        """Scroll a window by a given number of pixels."""
+        ...
+
+    def set_window_attributes(self, window_id: int, flags: int, operation: int = 0):
+        """Set attributes for a given window."""
         ...
 
 @runtime_checkable
@@ -347,17 +394,17 @@ class ITerminalAdapter(Protocol):
     the screen logic."""
     @property
     def height(self) -> int:
-        """The height of the terminal in characters."""
+        """The height of the terminal in units."""
         ...
 
     @property
     def width(self) -> int:
-        """The width of the terminal in characters."""
+        """The width of the terminal in units."""
         ...
 
     @property
     def font_size(self) -> int:
-        """Return font height (upper bytes) and font width (lower bytes)."""
+        """Return font height (upper bytes) and font width (lower bytes) in units."""
         ...
 
     @property
@@ -397,19 +444,23 @@ class ITerminalAdapter(Protocol):
         """Move the cursor to the specified 0-indexed coordinates."""
         ...
 
-    def get_char_at(self, y_pos: int, x_pos: int) -> int:
-        """Get the character code at the specified coordinates."""
+    def move_cursor_to_line_start(self):
+        """Move the cursor to the left margin of the current line."""
         ...
 
-    def paint_char_at(self, y_pos: int, x_pos: int, char: int):
-        """Paint the specified character code at the given coordinates."""
+    def cache_current_line(self):
+        """Cache the current line for later retrieval."""
+        ...
+
+    def uncache_current_line(self):
+        """Restore a cached line."""
         ...
 
     def erase_screen(self, background_color: int = Color.BLACK):
         """Erase the entire terminal screen."""
         ...
 
-    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
+    def erase_window(self, left: int, top: int, width: int, height: int, background_color: int = Color.BLACK):
         """Erase a portion of the terminal screen defined by the top coordinate and height."""
         ...
 
@@ -438,6 +489,22 @@ class IGraphicsAdapter(Protocol):
     """
     Defines additional methods for display beyond TerminalAdapter.
     """
+    @property
+    def cursor_enabled(self) -> bool:
+        ...
+    
+    @cursor_enabled.setter
+    def cursor_enabled(self, value: bool):
+        ...
+    
+    @property
+    def scrolling_enabled(self) -> bool:
+        ...
+    
+    @scrolling_enabled.setter
+    def scrolling_enabled(self, value: bool):
+        ...
+
     def is_font_supported(self, font_id: int) -> bool:
         """Return true if the terminal output supports the font setting, false otherwise."""
         ...
@@ -446,13 +513,20 @@ class IGraphicsAdapter(Protocol):
         """Set the character font for output."""
         ...
 
+    def erase_line(self, width: int):
+        """Erase the given width in pixels from the cursor position."""
+        ...
+
     def get_picture_size(self, number: int, resource_data: IResourceData) -> tuple[int, int]:
         """Get the width and height of a picture resource."""
         ...
 
-    def draw_picture(self, number: int, y: int, x: int, resource_data: IResourceData):
+    def draw_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
         """Draw a picture."""
         ...
+
+    def erase_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
+        """Paint the appropriate region of the screen to the background color."""
 
     def load_sound_effect(self, number: int, sound_data: bytes):
         """Prepare a sound effect to be played."""
@@ -470,7 +544,19 @@ class IGraphicsAdapter(Protocol):
         """Unload a sound effect from memory."""
         ...
 
-    def set_mouse_boundary(self, top: int, left: int, bottom: int, right: int):
+    def scroll_window(self, left: int, top: int, width: int, height: int, pixels: int):
+        """Scroll a region by a given number of pixels."""
+        ...
+
+    def set_print_region(self, left: int, top: int, width: int, height: int):
+        """Set a region of the window for printing."""
+        ...
+
+    def set_scrollable_region(self, left: int, top: int, width: int, height: int):
+        """Set a region of the window to be scrollable."""
+        ...
+
+    def set_mouse_region(self, left: int, top: int, width: int, height: int):
         """Restrict mouse input to the boundaries of a window."""
         ...
 
@@ -525,8 +611,10 @@ class IOutputStream(IBaseOutputStream, Protocol):
 @runtime_checkable
 class IMemoryOutputStream(IBaseOutputStream, Protocol):
     """Memory output stream interface that extends the base output stream with a method for opening with a table address."""
-    def open(self, table_addr: int):
-        """Open the memory output stream with the given table address."""
+    def open(self, table_addr: int, buffering: bool, width: int):
+        """Open the memory output stream with the given table address.
+        V6: Option to include line buffering and output width, for print_form.
+        """
         ...
 
 @runtime_checkable

@@ -167,11 +167,11 @@ class TestStreamErrorHandling:
         
         # Open max number of streams
         for i in range(max_depth):
-            stream.open(0x1000 + i * 0x100)
+            stream.open(0x1000 + i * 0x100, False, 0)
         
         # One more should raise
         with pytest.raises(StreamException) as exc_info:
-            stream.open(0x2000)
+            stream.open(0x2000, False, 0)
         
         assert "too many" in str(exc_info.value).lower() or \
                "memory stream" in str(exc_info.value).lower()
@@ -258,7 +258,7 @@ class TestEdgeCases:
         # Split to 0 should work (unsplit)
         screen.split_window(0)
         
-        assert screen.upper_window.height == 0
+        assert screen.windows[1].height == 0
     
     @pytest.mark.unit
     def test_window_split_to_full_height(self, mock_terminal_adapter, mock_resource_data):
@@ -272,8 +272,9 @@ class TestEdgeCases:
         # Split to full height
         screen.split_window(mock_terminal_adapter.height)
         
-        assert screen.upper_window.height == mock_terminal_adapter.height
-        assert screen.lower_window.height == 0
+        lower_window, upper_window = screen.windows
+        assert upper_window.height == mock_terminal_adapter.height
+        assert lower_window.height == 0
 
 
 @pytest.mark.integration
@@ -288,7 +289,7 @@ class TestErrorRecovery:
         
         event_manager = EventManager()
         screen = ScreenV4(mock_terminal_adapter, mock_resource_data, event_manager)
-        screen.buffer_mode = False
+        screen.set_buffer_mode(False)
         
         # Try invalid operation
         try:

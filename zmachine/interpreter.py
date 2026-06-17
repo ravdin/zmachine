@@ -109,7 +109,8 @@ class ZMachineInterpreter:
         self.memory_map.write_word(self.config.header_extension_addr + 4, e.y_coordinate + 1)
 
     def on_routine_call_handler(self, sender, e: RoutineCallEventArgs):
-        self.do_direct_call(e.routine_addr)
+        call_addr = self.unpack_addr(e.routine_addr)
+        self.do_direct_call(call_addr)
 
     def do_show_status(self):
         # In later versions, treat as a nop.
@@ -145,9 +146,9 @@ class ZMachineInterpreter:
         with open(self.config.game_file, "rb") as s:
             dynamic_mem = s.read(static_mem_ptr)
             self.memory_map.reset_dynamic_memory(dynamic_mem)
-        self.pc = self.config.initial_pc
-        self.call_stack.clear()
-        self.screen.erase_window(WindowPosition.LOWER)
+        self.pc = self.config.initial_pc if self.version < 6 else 0
+        self.call_stack = self.init_call_stack()
+        self.screen.restart_screen()
 
     def do_save(self) -> bool:
         return self.quetzal.do_save(self.pc, self.call_stack)
@@ -417,6 +418,14 @@ class ZMachineInterpreter:
 
     def get_arg_count(self) -> int:
         return self.call_stack.current_frame.arg_count
+    
+    def do_catch(self):
+        frame_id = self.call_stack.catch()
+        self.do_store(frame_id)
+    
+    def do_throw(self, return_value: int, frame_id: int):
+        self.call_stack.throw(frame_id)
+        self.do_return(return_value)
 
     def do_store(self, value: int):
         store = self.read_from_pc()
@@ -541,7 +550,7 @@ class ZMachineInterpreter:
         for i in range(byte_len):
             self.write_byte(coded_buffer + i, encoded[i])
 
-    def do_select_output_stream(self, stream_id: int, table_addr: int = 0):
+    def do_select_output_stream(self, stream_id: int, table_addr: int = 0, buffering: bool = False, width: int = 0):
         interpreter_logger.info(f"Selecting output stream {stream_id}")
         if abs(stream_id) == OutputStreamType.SCREEN:
             if stream_id > 0:
@@ -555,7 +564,18 @@ class ZMachineInterpreter:
                 self.output_manager.transcript_stream.close()
         elif abs(stream_id) == OutputStreamType.MEMORY:
             if stream_id > 0:
-                self.output_manager.memory_stream.open(table_addr)
+                if buffering:
+                    if width >= 0:
+                        window_id = width
+                        width_pixels = self.screen.get_window_property(window_id, 3)
+                        left_margin = self.screen.get_window_property(window_id, 6)
+                        right_margin = self.screen.get_window_property(window_id, 7)
+                        width = width_pixels - left_margin - right_margin
+                    else:
+                        width = -width
+                    char_width_pixels = self.screen.get_window_property(window_id, 13) & 0xff
+                    width //= char_width_pixels
+                self.output_manager.memory_stream.open(table_addr, buffering, width)
             else:
                 self.output_manager.memory_stream.close()
         self.event_manager.on_select_output_stream.invoke(self, EventArgs())

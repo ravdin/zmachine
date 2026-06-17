@@ -2,7 +2,7 @@
 Tests for memory map and call stack functionality.
 """
 import pytest
-from zmachine.memory import MemoryMap
+from zmachine.output import MemoryStream
 from zmachine.stack import CallStack
 from zmachine.error import IllegalWriteException, InvalidMemoryException
 
@@ -196,3 +196,104 @@ class TestMemoryAndStack:
         for i in range(3):
             value = stack.get_local_var(i)
             assert value == 0x1000 + i
+
+# ============================================================================
+# MemoryStream
+# ============================================================================
+
+class _MockMemory:
+    """Minimal memory map: flat dict-backed byte store with word helpers."""
+    def __init__(self, version: int = 6, font_width: int = 10):
+        self._mem = {}
+        self._version = version
+        self._font_width = font_width
+
+    def write_byte(self, addr: int, val: int):
+        self._mem[addr] = val & 0xff
+
+    def read_byte(self, addr: int) -> int:
+        if addr == 0:
+            return self._version
+        if addr == 0x27:  # V6 font width byte, used by close() for unit width
+            return self._font_width
+        return self._mem.get(addr, 0)
+
+    def write_word(self, addr: int, val: int):
+        self._mem[addr] = (val >> 8) & 0xff
+        self._mem[addr + 1] = val & 0xff
+
+    def read_word(self, addr: int) -> int:
+        return (self._mem.get(addr, 0) << 8) | self._mem.get(addr + 1, 0)
+
+    def bytes_at(self, addr: int, length: int) -> bytes:
+        return bytes(self._mem.get(addr + i, 0) for i in range(length))
+
+
+class TestMemoryStreamPlain:
+    """The non-buffered path (normal output_stream 3)."""
+
+    @pytest.mark.unit
+    def test_plain_write_stores_length_prefixed_text(self):
+        mem = _MockMemory(version=5)
+        stream = MemoryStream(mem)
+        addr = 0x1000
+        stream.open(addr, False, 0)
+        stream.write("Hello", False)
+        stream.close()
+
+        # Word at addr = length; bytes follow.
+        assert mem.read_word(addr) == len("Hello")
+        assert mem.bytes_at(addr + 2, 5) == b"Hello"
+
+    @pytest.mark.unit
+    def test_nested_streams_lifo(self):
+        """Memory streams nest; closing pops the most recent table."""
+        mem = _MockMemory(version=5)
+        stream = MemoryStream(mem)
+        stream.open(0x1000, False, 0)
+        stream.write("outer", False)
+        stream.open(0x2000, False, 0)
+        stream.write("in", False)
+        stream.close()  # closes inner (0x2000)
+
+        assert mem.read_word(0x2000) == 2
+        assert mem.bytes_at(0x2002, 2) == b"in"
+
+        stream.close()  # closes outer (0x1000)
+        assert mem.read_word(0x1000) == 5
+        assert mem.bytes_at(0x1002, 5) == b"outer"
+
+
+class TestMemoryStreamBuffered:
+    """The buffered/print_form path (flush_buffered)."""
+
+    @pytest.mark.unit
+    def test_text_shorter_than_width_single_row(self):
+        """A line shorter than the width is written as one row plus a 0 terminator."""
+        mem = _MockMemory(version=6)
+        stream = MemoryStream(mem)
+        addr = 0x1000
+        stream.open(addr, True, 10)  # buffering on, width 10
+        stream.write("Hello", False)
+        stream.close()
+
+        # Row 0: length 5, "Hello"
+        assert mem.read_word(addr) == 5
+        assert mem.bytes_at(addr + 2, 5) == b"Hello"
+        # Terminator word (0) follows the row.
+        assert mem.read_word(addr + 2 + 5) == 0
+
+    @pytest.mark.unit
+    def test_hard_break_when_no_whitespace(self):
+        """A run longer than width with no spaces is hard-broken at the width."""
+        mem = _MockMemory(version=6)
+        stream = MemoryStream(mem)
+        addr = 0x1000
+        stream.open(addr, True, 4)  # width 4
+        stream.write("abcdefg", False)  # 7 chars, no spaces
+        stream.close()
+
+        # First row: 4 chars + newline marker. flush() writes count+1 as the
+        # word and appends a 13. Row word should be 4 + 1 = 5.
+        assert mem.read_word(addr) == 5
+        assert mem.bytes_at(addr + 2, 4) == b"abcd"

@@ -19,8 +19,9 @@ class KeyboardInputParser:
     
     def backspace(self, backspace_chars: int = 1):
         y, x = self.terminal_adapter.get_coordinates()
-        if backspace_chars > 0 and x > backspace_chars:
-            self.terminal_adapter.move_cursor(y, x - backspace_chars)
+        if backspace_chars > 0:
+            char_width = self.terminal_adapter.font_size & 0xff
+            self.terminal_adapter.move_cursor(y, x - backspace_chars * char_width)
             self.terminal_adapter.clear_to_eol()
 
 class InputStreamManager:

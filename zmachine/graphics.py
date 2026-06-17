@@ -10,26 +10,22 @@ import pygame
 import sys
 import io
 import numpy as np
-from dataclasses import dataclass
+from typing import Final
+from enum import IntEnum, auto
 from .protocol import IResourceData
 from .event import EventManager, MouseClickEventArgs, RoutineCallEventArgs
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
 from .enums import Color, FontEnum, FunctionKey, StoryEnum, MouseClick
 from .constants import FONT3_BITMAP, DEFAULT_FONT_SIZE
-from .error import InvalidPictureResourceException
+from .error import ZMachineException, InvalidPictureResourceException, CursorOutOfBoundsException
 from .logging import graphics_logger as logger
 
 
-@dataclass
-class Cell:
-    """Represents a single character cell with its display attributes."""
-    char: str = ' '
-    fg: tuple = (219, 219, 219)         # Light gray
-    bg: tuple = (0, 0, 0)               # Black
-    style: int = 0                      # Style flags (bold, italic, reverse)
-    font: FontEnum = FontEnum.DEFAULT   # Font for output
-
+class UnitEnum(IntEnum):
+    """Indicates if the screen units are measured in characters (up to v5) or pixels (v6)"""
+    Character = auto()
+    Pixel = auto()
 
 class GraphicsAdapter:
     """
@@ -60,8 +56,8 @@ class GraphicsAdapter:
         logger.info(f"Initializing graphics adapter: {window_width}x{window_height}")
         
         pygame.init()
-        self.window_width = window_width
-        self.window_height = window_height
+        self.screen_width_pixels: Final[int] = window_width
+        self.screen_height_pixels: Final[int] = window_height
         self.event_manager = event_manager
         self.screen = pygame.display.set_mode((window_width, window_height))
         self._mouse_enabled = runtime_settings.mouse_enabled
@@ -74,44 +70,65 @@ class GraphicsAdapter:
         
         # Font setup - try monospace first
         try:
-            self.font = pygame.font.SysFont('courier', DEFAULT_FONT_SIZE)
-            logger.debug("Using Courier font")
+            self.font = pygame.font.SysFont('dejavusansmono', DEFAULT_FONT_SIZE)
+            logger.debug("Using DejaVu Sans Mono font")
         except:
             self.font = pygame.font.Font(None, 16)
             logger.debug("Using default font")
         
         # Calculate character dimensions
-        test_surface = self.font.render('M', True, (255, 255, 255))
-        self.char_width = test_surface.get_width()
-        self.char_height = self.font.get_height()
+        test_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz,;_0123456789'
+        max_height = self.font.get_height()
+        min_descent = 0
+        for metric in self.font.metrics(test_chars):
+            _, _, miny, maxy, _ = metric
+            max_height = max(max_height, miny)
+            min_descent = min(min_descent, maxy)
+        metrics = self.font.metrics('M')
+        self.char_width_pixels: Final[int] = metrics[0][4]
+        self.char_height_pixels: Final[int] = max(max_height, max_height - min_descent)
 
-        logger.info(f"Character dimensions: {self.char_width}x{self.char_height}")
+        logger.info(f"Character dimensions: {self.char_width_pixels}x{self.char_height_pixels}")
         
-        # Calculate screen size in characters
-        self._width = window_width // self.char_width
-        self._height = window_height // self.char_height
+        # Up to version 5, height/width units are characters.
+        # For version 6, units are pixels.
+        self.unit: Final[UnitEnum] = UnitEnum.Character if config.version <= 5 else UnitEnum.Pixel
+        self.char_width_units: Final[int] = self.char_width_pixels if self.unit == UnitEnum.Pixel else 1
+        self.char_height_units: Final[int] = self.char_height_pixels if self.unit == UnitEnum.Pixel else 1
+        self.screen_width_units: Final[int] = \
+            self.screen_width_pixels if self.unit == UnitEnum.Pixel else self.screen_width_pixels // self.char_width_pixels
+        self.screen_height_units: Final[int] = \
+            self.screen_height_pixels if self.unit == UnitEnum.Pixel else self.screen_height_pixels // self.char_height_pixels
+
+        logger.info(f"Screen size: {self.width} cols x {self.height} rows")
         
-        logger.info(f"Screen size: {self._width} cols x {self._height} rows")
-        
-        # Screen buffer (rows x cols of Cell objects)
-        self.screen_buffer = [[Cell() for _ in range(self._width)] 
-                             for _ in range(self._height)]
-        self.cursor_x = 0
-        self.cursor_y = 0
+        self.cursor_x: int = 0
+        # The x-cursor in units.
+        self.cursor_y: int = 0
+        # The y cursor in units.
+        self._cursor_enabled = True
+        # Toggle cursor visibility.
+        self._scrolling_enabled = True
+        # Toggle window scrolling on/off.
+        self._line_cache = pygame.Surface((0, 0))
+        # Cache the bottom output line.
         
         # Current text attributes (for new characters)
-        self.current_fg = (219, 219, 219)   # Light gray (Z-color 10)
-        self.current_bg = (0, 0, 0)         # Black (Z-color 2)
+        self.current_fg: tuple[int, ...] = (219, 219, 219)   # Light gray (Z-color 10)
+        self.current_bg: tuple[int, ...] = (0, 0, 0)         # Black (Z-color 2)
         self.current_style = 0
         
         # Scrolling region (for split-window support)
-        self.scroll_top = 0
+        self.scrollable_region = pygame.Rect(0, 0, self.screen_width_pixels, self.screen_height_pixels)
         
         # Input timeout (milliseconds)
         self.input_timeout_ms = 0
 
         # Mouse boundaries (top, left, bottom, right)
-        self.mouse_boundary = (0, 0, self.height, self.width)
+        self.mouse_region = pygame.Rect(0, 0, self.screen_width_pixels, self.screen_height_pixels)
+
+        # Printable region
+        self.print_region = pygame.Rect(0, 0, self.screen_width_pixels, self.screen_height_pixels)
 
         # Configure sound resources.
         self.sound_channel = pygame.mixer.Channel(0)
@@ -120,6 +137,9 @@ class GraphicsAdapter:
         self._sound_interrupted: bool = False
         self._current_sound_number: int = 0
         self._sound_resources: dict[int, pygame.mixer.Sound] = {}
+
+        # Configure graphics resources.
+        self._current_palette: list[pygame.Color] = [pygame.Color(0, 0, 0)] * 16
         
         # Clear screen
         self.screen.fill(self.current_bg)
@@ -133,23 +153,23 @@ class GraphicsAdapter:
     
     @property
     def height(self) -> int:
-        """The height of the terminal in characters."""
-        return self._height
+        """The height of the terminal in units."""
+        return self.screen_height_units
     
     @property
     def width(self) -> int:
-        """The width of the terminal in characters."""
-        return self._width
+        """The width of the terminal in units."""
+        return self.screen_width_units
     
     @property
     def font_size(self) -> int:
-        return (self.char_height << 8) | self.char_width
+        return (self.char_height_units << 8) | self.char_width_units
     
     @property
     def at_wrap_boundary(self) -> bool:
         """Indicates that the output text of the last line has reached the edge of the screen."""
         return self._at_wrap_boundary
-    
+
     def refresh(self):
         """Refresh the terminal display."""
         pygame.display.flip()
@@ -157,21 +177,30 @@ class GraphicsAdapter:
     def set_scrollable_height(self, top: int):
         """Set the scrollable height of the terminal."""
         logger.debug(f"Set scrollable height: top={top}")
-        self.scroll_top = top
+        if self.unit == UnitEnum.Pixel:
+            logger.warning("Avoid set_scrollable_height for pixel display, use GraphicsAdapter.set_scrollable_region instead")
+        else:
+            top *= self.char_height_pixels
+        if top == self.screen_height_pixels:
+            self.scrolling_enabled = False
+        else:
+            self.scrolling_enabled = True
+            self.set_scrollable_region(0, top, self.screen_width_pixels, self.screen_height_pixels - top)
     
     def write_to_screen(self, text: str):
         """Write text directly to the terminal."""
         if logger.isEnabledFor(10):  # DEBUG level
             logger.debug(f"Write: {text!r}")
         
+        self._at_wrap_boundary = False
         for char in text:
             if char == '\n':
                 self._newline()
             else:
                 self._put_char(char)
         
-        if self.cursor_x >= self.width:
-            self._newline()
+        _, cursor_x = self.get_pixel_coordinates()
+        if len(text) > 0 and text[-1] != '\n' and cursor_x == self.print_region.left:
             self._at_wrap_boundary = True
         self.refresh()
     
@@ -228,7 +257,7 @@ class GraphicsAdapter:
                     elif event.key == pygame.K_RIGHT:
                         char_code = 132
                     elif pygame.K_F1 <= event.key <= pygame.K_F12:
-                        char_code = event.key - pygame.K_F1 + FunctionKey.F1
+                        char_code = int(event.key) - pygame.K_F1 + FunctionKey.F1
                     elif event.key == pygame.K_RETURN:
                         self._draw_cursor(False)
                         char_code = 13  # Enter
@@ -255,18 +284,19 @@ class GraphicsAdapter:
                     return char_code
                 
                 if event.type == pygame.MOUSEBUTTONDOWN and self._mouse_enabled:
-                    pixel_x, pixel_y = pygame.mouse.get_pos()
-                    x, y = pixel_x // self.char_width, pixel_y // self.char_height
-                    boundary_top, boundary_left, boundary_bottom, boundary_right = self.mouse_boundary
-                    if x < boundary_left or x >= boundary_right or y < boundary_top or y >= boundary_bottom:
+                    x, y = pygame.mouse.get_pos()
+                    if not self.mouse_region.collidepoint((x, y)):
                         continue
-                    event_args = MouseClickEventArgs(x_coordinate=x, y_coordinate=y)
+                    x_coordinate = x if self.unit == UnitEnum.Pixel else x // self.char_width_pixels
+                    y_coordinate = y if self.unit == UnitEnum.Pixel else y // self.char_height_pixels
+                    event_args = MouseClickEventArgs(x_coordinate, y_coordinate)
                     self.event_manager.on_mouse_click.invoke(self, event_args)
                     return MouseClick.SINGLE_CLICK
-                
-            cursor_blink_time, cursor_visible = self._update_cursor_blink(
-                cursor_blink_time, cursor_visible, clock.get_time()
-            )
+
+            if self.cursor_enabled:
+                cursor_blink_time, cursor_visible = self._update_cursor_blink(
+                    cursor_blink_time, cursor_visible, clock.get_time()
+                )
             
             clock.tick(60)
     
@@ -314,11 +344,9 @@ class GraphicsAdapter:
                             self._draw_cursor(False)
                             # Move cursor back and erase character
                             if self.cursor_x > 0:
-                                self.cursor_x -= 1
-                                self.screen_buffer[self.cursor_y][self.cursor_x] = Cell()
-                                x = self.cursor_x * self.char_width
-                                y = self.cursor_y * self.char_height
-                                bg_rect = pygame.Rect(x, y, self.char_width, self.char_height)
+                                self.cursor_x -= self.char_width_units
+                                cursor_y, cursor_x = self.get_pixel_coordinates()
+                                bg_rect = pygame.Rect(cursor_x, cursor_y, self.char_width_pixels, self.char_height_pixels)
                                 pygame.draw.rect(self.screen, self.current_bg, bg_rect)
                             self.refresh()
                     
@@ -350,58 +378,45 @@ class GraphicsAdapter:
         if logger.isEnabledFor(10):
             logger.debug(f"Move cursor: ({y_pos}, {x_pos})")
         
-        self.cursor_y = max(0, min(y_pos, self._height - 1))
-        self.cursor_x = max(0, min(x_pos, self._width - 1))
-    
-    def get_char_at(self, y_pos: int, x_pos: int) -> int:
-        """Get the character code at specified coordinates."""
-        if 0 <= y_pos < self._height and 0 <= x_pos < self._width:
-            char = self.screen_buffer[y_pos][x_pos].char
-            return ord(char) if char else 32
-        return 32
-    
-    def paint_char_at(self, y_pos: int, x_pos: int, char: int):
-        """Paint a character at specified coordinates with current attributes."""
-        if 0 <= y_pos < self._height and 0 <= x_pos < self._width:
-            char_str = chr(char) if 32 <= char <= 126 else ' '
-            
-            # Update buffer with current attributes
-            self.screen_buffer[y_pos][x_pos] = Cell(
-                char=char_str,
-                fg=self.current_fg,
-                bg=self.current_bg,
-                style=self.current_style,
-                font=self.current_font
-            )
-            
-            # Render the cell
-            x = x_pos * self.char_width
-            y = y_pos * self.char_height
-            self._render_cell(y_pos, x_pos, x, y)
+        self.cursor_y = max(0, min(y_pos, self.screen_height_units - 1))
+        self.cursor_x = max(0, min(x_pos, self.screen_width_units - 1))
+
+    def move_cursor_to_line_start(self):
+        """Move the cursor to the left margin of the current line."""
+        left = self.print_region.left
+        self.cursor_x = left if self.unit == UnitEnum.Pixel else left // self.char_width_pixels
+
+    def cache_current_line(self):
+        y, x = self.get_pixel_coordinates()
+        left = self.print_region.left
+        region = pygame.Rect(left, y, x - left, self.char_height_pixels)
+        self._line_cache = self.screen.subsurface(region).copy()
+
+    def uncache_current_line(self):
+        y, _ = self.get_pixel_coordinates()
+        left = self.print_region.left
+        self.screen.blit(self._line_cache, (left, y))
+        cursor_x = left + self._line_cache.get_width()
+        if self.unit == UnitEnum.Character:
+            cursor_x //= self.char_width_pixels
+        self.cursor_x = cursor_x
     
     def erase_screen(self, background_color: int = Color.BLACK):
         """Erase the entire terminal screen."""
         logger.debug("Erase screen")
         
-        self.screen_buffer = [[Cell() for _ in range(self._width)] 
-                             for _ in range(self._height)]
         self.screen.fill(self._zcolor_to_rgb(background_color))
         self.cursor_x = 0
         self.cursor_y = 0
         self.refresh()
     
-    def erase_window(self, top: int, height: int, background_color: int = Color.BLACK):
+    def erase_window(self, left: int, top: int, width: int, height: int, background_color: int = Color.BLACK):
         """Erase a portion of the screen."""
-        logger.debug(f"Erase window: top={top}, height={height}")
+        logger.debug(f"Erase window: top={top}, height={height}, left={left}, width={width}")
 
         color = self._zcolor_to_rgb(background_color)
         
-        for row in range(top, min(top + height, self._height)):
-            self.screen_buffer[row] = [Cell() for _ in range(self._width)]
-        
-        pixel_y = top * self.char_height
-        pixel_height = height * self.char_height
-        erase_rect = pygame.Rect(0, pixel_y, self.window_width, pixel_height)
+        erase_rect = pygame.Rect(left, top, width, height)
         pygame.draw.rect(self.screen, color, erase_rect)
         self.refresh()
     
@@ -410,14 +425,9 @@ class GraphicsAdapter:
         if logger.isEnabledFor(10):
             logger.debug(f"Clear to EOL from ({self.cursor_y}, {self.cursor_x})")
         
-        for x in range(self.cursor_x, self._width):
-            self.screen_buffer[self.cursor_y][x] = Cell()
-        
-        pixel_x = self.cursor_x * self.char_width
-        pixel_y = self.cursor_y * self.char_height
-        pixel_width = (self._width - self.cursor_x) * self.char_width
-        erase_rect = pygame.Rect(pixel_x, pixel_y, pixel_width, self.char_height)
-        pygame.draw.rect(self.screen, (0, 0, 0), erase_rect)
+        cursor_y, cursor_x = self.get_pixel_coordinates()
+        erase_rect = pygame.Rect(cursor_x, cursor_y, self.print_region.right - cursor_x, self.char_height_pixels)
+        pygame.draw.rect(self.screen, self.current_bg, erase_rect)
         self.refresh()
     
     def apply_style_attributes(self, attributes: int):
@@ -428,9 +438,16 @@ class GraphicsAdapter:
     def apply_color_settings(self, background_color: int, foreground_color: int):
         """Set foreground and background colors for subsequent output."""
         logger.debug(f"Set color: bg={background_color}, fg={foreground_color}")
-        
-        self.current_bg = self._zcolor_to_rgb(background_color)
-        self.current_fg = self._zcolor_to_rgb(foreground_color)
+        cursor_y, cursor_x = self.get_pixel_coordinates()
+
+        if background_color == -1:
+            self.current_bg = tuple(self.screen.get_at((cursor_x, cursor_y)))
+        else:    
+            self.current_bg = self._zcolor_to_rgb(background_color)
+        if foreground_color == -1:
+            raise ZMachineException('Current foreground color is not supported')
+        else:
+            self.current_fg = self._zcolor_to_rgb(foreground_color)
 
     def beep(self):
         self.beep_sound.play()
@@ -443,6 +460,21 @@ class GraphicsAdapter:
     # ========================================================================
     # IGraphicsAdapter Protocol Implementation (duck typing)
     # ========================================================================
+    @property
+    def cursor_enabled(self) -> bool:
+        return self._cursor_enabled
+
+    @cursor_enabled.setter
+    def cursor_enabled(self, value: bool):
+        self._cursor_enabled = value
+
+    @property
+    def scrolling_enabled(self) -> bool:
+        return self._scrolling_enabled
+
+    @scrolling_enabled.setter
+    def scrolling_enabled(self, value: bool):
+        self._scrolling_enabled = value
 
     def is_font_supported(self, font_id: int) -> bool:
         if font_id == FontEnum.PICTURE or font_id not in FontEnum:
@@ -452,24 +484,56 @@ class GraphicsAdapter:
     def apply_font(self, font: FontEnum):
         self.current_font = font
 
+    def erase_line(self, width: int):
+        cursor_y, cursor_x = self.get_coordinates()
+        rect = pygame.Rect(cursor_x + self.char_width_pixels, cursor_y, width, self.char_height_pixels)
+        self.screen.subsurface(rect).fill(self.current_bg)
+
     def get_picture_size(self, number: int, resource_data: IResourceData) -> tuple[int, int]:
         """Get the width and height of a picture resource."""
         if not resource_data.is_valid_picture(number):
             return (0, 0)
         picture_data = resource_data.get_picture_data(number)
-        surface = pygame.image.load(io.BytesIO(picture_data))
-        return surface.get_size()
+        scaling_ratio = resource_data.get_scaling_ratio(number, self.screen_width_pixels, self.screen_height_pixels)
+        if len(picture_data) == 8:
+            width = int.from_bytes(picture_data[0:4], "big")
+            height = int.from_bytes(picture_data[4:8], "big")
+        else:
+            surface = pygame.image.load(io.BytesIO(picture_data))
+            width, height = surface.get_size()
+        return int(width * scaling_ratio), int(height * scaling_ratio)
     
-    def draw_picture(self, number: int, y: int, x: int, resource_data: IResourceData):
+    def draw_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
         picture_data = resource_data.get_picture_data(number)
         if len(picture_data) == 0:
             raise InvalidPictureResourceException(number)
         
-        pixel_x = x * self.char_width
-        pixel_y = y * self.char_height
+        scaling_ratio = resource_data.get_scaling_ratio(number, self.screen_width_pixels, self.screen_height_pixels)
+        
         # TODO: Would probably be good to cache this.
         surface = pygame.image.load(io.BytesIO(picture_data))
-        self.screen.blit(surface, (pixel_x, pixel_y))
+        if scaling_ratio != 1:
+            scaled_width = scaling_ratio * surface.get_width()
+            scaled_height = scaling_ratio * surface.get_height()
+            surface = pygame.transform.scale(surface, (scaled_width, scaled_height))
+
+        if surface.get_bitsize() <= 8:
+            if resource_data.is_adaptive_picture(number):
+                surface.set_palette(self._current_palette)
+                surface = surface.convert()
+            else:
+                palette = surface.get_palette()
+                for i in range(2, min(len(palette), 16)):
+                    self._current_palette[i] = palette[i]
+        self.screen.blit(surface, (left, top))
+
+    def erase_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
+        if not resource_data.is_valid_picture(number):
+            raise InvalidPictureResourceException(number)
+        
+        width, height = self.get_picture_size(number, resource_data)
+        rect = pygame.Rect(left, top, width, height)
+        self.screen.subsurface(rect).fill(self.current_bg)
 
     def load_sound_effect(self, number: int, sound_data: bytes):
         if number not in self._sound_resources and len(sound_data) > 0:
@@ -506,122 +570,109 @@ class GraphicsAdapter:
         elif number in self._sound_resources:
             del self._sound_resources[number]
 
-    def set_mouse_boundary(self, top: int, left: int, bottom: int, right: int):
-        self.mouse_boundary = (top, left, bottom, right)
+    def scroll_window(self, left: int, top: int, width: int, height: int, pixels: int):
+        """Scroll the given area, regardless of the value of scrolling_enabled."""
+        scroll_rect = pygame.Rect(left, top, width, height)
+        self.screen.subsurface(scroll_rect).scroll(0, -pixels)
+        blank_top = top + height - pixels if pixels > 0 else top
+        blank_rect = pygame.Rect(left, blank_top, width, abs(pixels))
+        self.screen.subsurface(blank_rect).fill(self.current_bg)
+
+    def set_print_region(self, left: int, top: int, width: int, height: int):
+        logger.info(f'Setting print region to ({left}, {top}, {width}, {height})')
+        self.print_region = pygame.Rect(left, top, width, height)
+
+    def set_scrollable_region(self, left: int, top: int, width: int, height: int):
+        logger.info(f'Setting scroll region to ({left}, {top}, {width}, {height})')
+        self.scrolling_enabled = True
+        self.scrollable_region = pygame.Rect(left, top, width, height)
+
+    def set_mouse_region(self, left: int, top: int, width: int, height: int):
+        logger.info(f'Setting mouse region to ({left}, {top}, {width}, {height})')
+        self.mouse_region = pygame.Rect(left, top, width, height)
     
     # ========================================================================
     # Internal Helper Methods
     # ========================================================================
-    
-    def _render_cell(self, row: int, col: int, pixel_x: int, pixel_y: int):
-        """Render a single cell with its stored attributes."""
-        cell = self.screen_buffer[row][col]
-        fg = cell.fg
-        bg = cell.bg
-        
-        # Handle reverse video (swap fg/bg)
-        if cell.style & 0x01:
-            fg, bg = bg, fg
-        
-        # Clear background
-        bg_rect = pygame.Rect(pixel_x, pixel_y, self.char_width, self.char_height)
-        pygame.draw.rect(self.screen, bg, bg_rect)
 
-        if cell.font == FontEnum.GRAPHICS:
-            self._render_font3(row, col, pixel_x, pixel_y)
-            return
-        
-        # Render character
-        if cell.char != ' ':
-            # Handle bold
-            bold = bool(cell.style & 0x02)
-            self.font.set_bold(bold)
-            
-            # Handle italic
-            italic = bool(cell.style & 0x04)
-            self.font.set_italic(italic)
-            
-            char_surface = self.font.render(cell.char, True, fg)
-            self.screen.blit(char_surface, (pixel_x, pixel_y))
-            
-            # Reset font styles
-            self.font.set_bold(False)
-            self.font.set_italic(False)
+    def get_pixel_coordinates(self) -> tuple[int, int]:
+        """Pixel coordinates of the cursor (y, x)"""
+        if self.unit == UnitEnum.Pixel:
+            return self.cursor_y, self.cursor_x
+        return self.cursor_y * self.char_height_pixels, self.cursor_x * self.char_width_pixels
     
     def _put_char(self, char: str):
         """Put a single character at cursor position with current style."""
-        if self.cursor_x >= self._width:
+        if self.current_font == FontEnum.GRAPHICS:
+            self._render_font3(char)
+            return
+
+        cursor_y, cursor_x = self.get_pixel_coordinates()
+        reverse_style = bool(self.current_style & 1)
+        fg = self.current_bg if reverse_style else self.current_fg
+        bg = self.current_fg if reverse_style else self.current_bg
+        font = self.font
+
+        # Clear the background
+        bg_rect = pygame.Rect(cursor_x, cursor_y, self.char_width_pixels, self.char_height_pixels)
+        pygame.draw.rect(self.screen, bg, bg_rect)
+        
+        # Render the character
+        if char != ' ':
+            # Handle bold
+            bold = bool(self.current_style & 0x02)
+            font.set_bold(bold)
+            
+            # Handle italic
+            italic = bool(self.current_style & 0x04)
+            font.set_italic(italic)
+            
+            char_surface = font.render(char, True, fg)
+            self.screen.blit(char_surface, (cursor_x, cursor_y))
+        
+        self.cursor_x += self.char_width_units
+        max_x = self.print_region.right // self.char_width_pixels if self.unit == UnitEnum.Character else self.print_region.right
+        if self.cursor_x + self.char_width_units - 1 >= max_x:
             self._newline()
-        
-        if self.cursor_y >= self._height:
-            self._scroll_up()
-        
-        # Update buffer with character AND current style
-        self.screen_buffer[self.cursor_y][self.cursor_x] = Cell(
-            char=char,
-            fg=self.current_fg,
-            bg=self.current_bg,
-            style=self.current_style,
-            font = self.current_font
-        )
-        
-        # Render the cell
-        x = self.cursor_x * self.char_width
-        y = self.cursor_y * self.char_height
-        self._render_cell(self.cursor_y, self.cursor_x, x, y)
-        
-        self.cursor_x += 1
     
     def _newline(self):
         """Move cursor to next line."""
-        self.cursor_x = 0
-        self.cursor_y += 1
-        self._at_wrap_boundary = False
+        left_margin_pixels = self.print_region.left
+        left_margin_units = left_margin_pixels if self.unit == UnitEnum.Pixel else left_margin_pixels // self.char_width_pixels
+        self.cursor_x = left_margin_units
 
-        if self.cursor_y >= self._height:
-            self._scroll_up()
+        cursor_y, _ = self.get_pixel_coordinates()
+        num_lines = self.print_region.height // self.char_height_pixels
+        max_y = min(self.print_region.bottom, self.print_region.top + num_lines * self.char_height_pixels)
+        if cursor_y + self.char_height_pixels >= max_y:
+            if not self.print_region.collidepoint(left_margin_pixels, cursor_y):
+                raise CursorOutOfBoundsException(left_margin_pixels, cursor_y)
+            if self.scrollable_region.collidepoint(left_margin_pixels, cursor_y):
+                self._scroll_up()
+        else:
+            self.cursor_y += self.char_height_units
     
     def _scroll_up(self):
         """Scroll screen up by one line (in scrollable region)."""
+        if not self.scrolling_enabled:
+            return
         logger.debug("Scrolling up")
-        
-        if self.scroll_top > 0:
-            # Keep top lines, scroll the rest
-            top_lines = self.screen_buffer[:self.scroll_top]
-            scrollable_lines = self.screen_buffer[self.scroll_top:]
-            self.screen_buffer = (top_lines + 
-                                 scrollable_lines[1:] + 
-                                 [[Cell() for _ in range(self._width)]])
-        else:
-            # Scroll entire screen
-            self.screen_buffer = (self.screen_buffer[1:] + 
-                                 [[Cell() for _ in range(self._width)]])
-        
-        self.cursor_y = self._height - 1
-        self._redraw_all()
-    
-    def _redraw_all(self):
-        """Redraw entire screen from buffer."""
-        self.screen.fill((0, 0, 0))
-        
-        for row in range(self._height):
-            for col in range(self._width):
-                x = col * self.char_width
-                y = row * self.char_height
-                self._render_cell(row, col, x, y)
-    
+        self.screen.subsurface(self.scrollable_region).scroll(0, -self.char_height_pixels)
+        line_count = self.scrollable_region.height // self.char_height_pixels
+        bottom_line = pygame.Rect(self.scrollable_region.left,
+                                  self.scrollable_region.top + self.char_height_pixels * (line_count - 1),
+                                  self.scrollable_region.width,
+                                  self.char_height_pixels)
+        self.screen.subsurface(bottom_line).fill(self.current_bg)
+
     def _draw_cursor(self, visible: bool):
         """Draw or erase cursor."""
-        x = self.cursor_x * self.char_width
-        y = self.cursor_y * self.char_height
+        cursor_y, cursor_x = self.get_pixel_coordinates()
+        cursor_rect = pygame.Rect(cursor_x, cursor_y + self.char_height_pixels - 2, self.char_width_pixels, 2)
         
         if visible:
-            cursor_rect = pygame.Rect(x, y + self.char_height - 2, 
-                                     self.char_width, 2)
             pygame.draw.rect(self.screen, self.current_fg, cursor_rect)
         else:
-            cursor_rect = pygame.Rect(x, y + self.char_height - 2, 
-                                     self.char_width, 2)
             pygame.draw.rect(self.screen, self.current_bg, cursor_rect)
 
     def _update_cursor_blink(self, cursor_blink_time: int, cursor_visible: bool, dt: int) -> tuple[int, bool]:
@@ -651,14 +702,18 @@ class GraphicsAdapter:
         }
         return colors.get(Color(zcolor), (219, 219, 219))
     
-    def _render_font3(self, row: int, col: int, left: int, top: int):
-        cell = self.screen_buffer[row][col]
+    def _render_font3(self, char: str):
+        top, left = self.get_pixel_coordinates()
 
-        c = ord(cell.char)
+        # Clear the background
+        bg_rect = pygame.Rect(left, top, self.char_width_pixels, self.char_height_pixels)
+        pygame.draw.rect(self.screen, self.current_bg, bg_rect)
+
+        c = ord(char)
         if c >= 32 and c <= 126:
             bitmap = FONT3_BITMAP[c]
-            scale_x = self.char_width / 8.0
-            scale_y = self.char_height / 8.0
+            scale_x = self.char_width_pixels / 8.0
+            scale_y = self.char_height_pixels / 8.0
             pixel_top = top
             for y in range(8):
                 row_bit = 0x80
@@ -670,10 +725,15 @@ class GraphicsAdapter:
                     pixel_width = int((x + 1) * scale_x) - int(x * scale_x)
                     if bitmap[y] & row_bit == row_bit:
                         pixel_rect = pygame.Rect(pixel_left, pixel_top, pixel_width, pixel_height)
-                        pygame.draw.rect(self.screen, cell.fg, pixel_rect)
+                        pygame.draw.rect(self.screen, self.current_fg, pixel_rect)
                     pixel_left += pixel_width
                     row_bit >>= 1
                 pixel_top += pixel_height
+        self.cursor_x += self.char_width_units
+
+        _, cursor_x = self.get_pixel_coordinates()
+        if cursor_x + self.char_width_pixels >= self.print_region.right:
+            self._newline()
 
     def _make_beep(self, frequency: int = 440, duration_ms: int = 200, volume: float = 0.3) -> pygame.mixer.Sound:
         """Generate a simple sine wave beep."""

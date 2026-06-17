@@ -6,13 +6,21 @@ class ZMachineException(Exception):
         logger.error(message)
         super().__init__(message)
 
+
 class InvalidScreenOperationException(ZMachineException):
     """Raised when screen operation is not allowed."""
     pass
 
+
+class CursorOutOfBoundsException(ZMachineException):
+    def __init__(self, cursor_x: int, cursor_y: int):
+        super().__init__(f"Cursor out of bounds: ({cursor_x}, {cursor_y})")
+
+
 class InvalidGameFileException(ZMachineException):
     def __init__(self, message):
         super().__init__(f"Invalid game file: {message}")
+
 
 class ZSCIIException(ZMachineException):
     def __init__(self, message):

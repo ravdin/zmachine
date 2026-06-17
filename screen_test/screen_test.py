@@ -1,7 +1,7 @@
 from zmachine.screen import ScreenV4
-from zmachine.config import ZMachineConfig
 from zmachine.curses import CursesAdapter
 from zmachine.output import ScreenStream
+from zmachine.blorb import BlorbFile
 from zmachine.enums import TextStyle, WindowPosition
 from zmachine.event import EventManager, EventArgs
 
@@ -9,12 +9,12 @@ from zmachine.event import EventManager, EventArgs
 class ScreenTest:
     def __init__(self, version: int):
         self.version = version
-        config = ZMachineConfig(game_file = '',version = version)
         self.event_manager = EventManager()
-        self.adapter = CursesAdapter(config)
-        self.screen = ScreenV4(self.adapter, self.event_manager)
+        self.adapter = CursesAdapter()
+        resource_data = BlorbFile(b'')
+        self.screen = ScreenV4(self.adapter, resource_data, self.event_manager)
         self.stream = ScreenStream(self.screen)
-        self.screen.buffer_mode = True
+        self.screen.set_buffer_mode(True)
         self.height = self.adapter.height
         self.width = self.adapter.width
         self.init_status_line()
@@ -36,23 +36,23 @@ class ScreenTest:
         self.screen.erase_window(-2)
         self.screen.split_window(1)
         self.screen.set_window(1)
-        self.screen.buffer_mode = False
+        self.screen.set_buffer_mode(False)
         self.screen.set_text_style(1)
         for _ in range(self.width + 1):
             self.stream.write(' ', False)
         self.screen.set_window(0)
-        self.screen.buffer_mode = True
+        self.screen.set_buffer_mode(True)
 
     def write_to_status_line(self, text, line, lpad=0):
         self.screen.set_window(1)
-        self.screen.buffer_mode = False
+        self.screen.set_buffer_mode(False)
         self.set_cursor(line, 1)
         self.stream.write(" " * lpad, False)
         self.stream.write(text, False)
         for _ in range(lpad + len(text), self.width + 1):
             self.stream.write(' ', False)
         self.screen.set_window(0)
-        self.screen.buffer_mode = True
+        self.screen.set_buffer_mode(True)
 
     def post_init(self):
         self.stream.write(f"Screen width: {self.width}", True)
@@ -68,7 +68,7 @@ class ScreenTest:
         self.adapter.get_input_char(echo=echo)
 
     def set_cursor(self, y, x):
-        self.screen.set_cursor(y - 1, x - 1)
+        self.screen.set_cursor(y, x)
 
     def enter_menu(self):
         menu_width = 40
@@ -79,7 +79,7 @@ class ScreenTest:
         self.screen.split_window(5)
         self.write_to_status_line("Testing menu", 1, 3)
         self.set_window(1)
-        self.screen.buffer_mode = False
+        self.screen.set_buffer_mode(False)
         menu_items = ['Menu item 1', 'Menu item 2', 'Menu item 3', 'Menu item 4']
         cursor_coordinates = [(3, 1), (4, 1), (5, 1), (3, 21)]
         self.set_cursor(2, 1)
@@ -97,7 +97,7 @@ class ScreenTest:
         self.write_message(menu_items[0])
         for menu_ptr in range(1, 4):
             self.screen.set_window(1)
-            self.screen.buffer_mode = False
+            self.screen.set_buffer_mode(False)
             self.set_cursor(*cursor_coordinates[menu_ptr-1])
             self.stream.write(" ", False)
             self.set_cursor(*cursor_coordinates[menu_ptr])
@@ -112,9 +112,9 @@ class ScreenTest:
 
     def set_window(self, window_id):
         if window_id == WindowPosition.UPPER:
-            self.screen.buffer_mode = False
+            self.screen.set_buffer_mode(False)
         else:
-            self.screen.buffer_mode = True
+            self.screen.set_buffer_mode(True)
         self.screen.set_window(window_id)
 
     def test_split_window(self):

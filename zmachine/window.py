@@ -1,5 +1,5 @@
 from .enums import FontEnum
-from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FONT_SIZE
+from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 from .error import InvalidScreenOperationException
 
 class Window:
@@ -25,13 +25,14 @@ class Window:
     }
 
     def __init__(self, height: int, width: int, font_size: int):
-        # The z-machine uses 1-index for screen coordinates, but the interpreter uses 0-index.
-        self.y_pos: int = 0
-        self.x_pos: int = 0
+        # The Window class uses 1-index for screen coordinates, to match values read from the game.
+        self.y_pos: int = 1
+        self.x_pos: int = 1
         self.height: int = height
         self.width: int = width
-        self.y_cursor: int = 0
-        self.x_cursor: int = 0
+        # Cursor coordinates are relative to the window, not the screen.
+        self.y_cursor: int = 1
+        self.x_cursor: int = 1
         self.left_margin: int = 0
         self.right_margin: int = 0
         self.nl_routine: int = 0
@@ -45,9 +46,6 @@ class Window:
         self.line_count: int = 0
         self.true_foreground_color: int = 0x5ad6    # Light gray
         self.true_background_color: int = 0         # Black
-    
-    def sync_cursor(self, y_coordinate: int, x_coordinate: int):
-        self.y_cursor, self.x_cursor = y_coordinate, x_coordinate
 
     def get_property(self, property_number: int) -> int:
         property_name = self.PROPERTIES.get(property_number)
@@ -60,6 +58,44 @@ class Window:
         if property_name is None:
             raise InvalidScreenOperationException(f'Unknown property number: {property_number}')
         setattr(self, property_name, value)
+
+    def reset_properties(self):
+        """Reset all window properties to the defaults."""
+        self.y_pos = 1
+        self.x_pos = 1
+        self.height = 0
+        self.width = 0
+        self.y_cursor = 1
+        self.x_cursor = 1
+        self.left_margin = 0
+        self.right_margin = 0
+        self.nl_routine = 0
+        self.nl_countdown = 0
+        self.text_style_attributes = 0
+        self.background_color = DEFAULT_BACKGROUND_COLOR
+        self.foreground_color = DEFAULT_FOREGROUND_COLOR
+        self.font = FontEnum.DEFAULT
+        # Assumption: The font size will not be changed, so it can stay.
+        self.window_attributes = 0
+        self.line_count = 0
+        self.true_foreground_color = 0x5ad6
+        self.true_background_color = 0
+
+    @property
+    def font_height(self) -> int:
+        return self.font_size >> 8
+    
+    @property
+    def font_width(self) -> int:
+        return self.font_size & 0xff
+    
+    @property
+    def lines(self) -> int:
+        return self.height // self.font_height
+    
+    @property
+    def columns(self) -> int:
+        return self.width // self.font_width
         
     @property
     def color_data(self) -> int:
@@ -81,7 +117,7 @@ class Window:
         self.font = FontEnum(value)
 
     @property
-    def word_wrapping(self) -> bool:
+    def wrapping(self) -> bool:
         """Indicates that printed text that reaches the right margin will continue to the next line."""
         return self.window_attributes & 0x1 == 0x1
     
@@ -99,3 +135,10 @@ class Window:
     def buffered_printing(self) -> bool:
         """Indicates that text printed to the window will be temporarily stored in a buffer."""
         return self.window_attributes & 0x8 == 0x8
+
+    @buffered_printing.setter
+    def buffered_printing(self, value: bool):
+        if value:
+            self.window_attributes |= 0x8
+        else:
+            self.window_attributes &= 0x7

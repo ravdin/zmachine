@@ -9,12 +9,12 @@ from .settings import RuntimeSettings
 def hotkey_wrapper(hotkey_func):
     @wraps(hotkey_func)
     def wrapper(self, *args, **kwargs):
-        line_chars = self.get_current_line_chars()
+        self.terminal_adapter.cache_current_line()
         self.erase_current_line()
         try:
             result = hotkey_func(self, *args, **kwargs)
         finally:
-            self.restore_current_line_chars(line_chars)
+            self.terminal_adapter.uncache_current_line()
             self.terminal_adapter.refresh()
         return result
     return wrapper
@@ -30,24 +30,8 @@ class HotkeyHandler:
         self.terminal_adapter = terminal_adapter
         self.output_stream_manager = output_stream_manager
 
-    def get_current_line_chars(self) -> list[int]:
-        y_pos, x_pos = self.terminal_adapter.get_coordinates()
-        line_chars = [0] * x_pos
-        for x in range(x_pos):
-            line_chars[x] = self.terminal_adapter.get_char_at(y_pos, x)
-        return line_chars
-    
-    def restore_current_line_chars(self, line_chars: list[int]):
-        y_pos, _ = self.terminal_adapter.get_coordinates()
-        x_pos = 0
-        for char in line_chars:
-            self.terminal_adapter.paint_char_at(y_pos, x_pos, char)
-            x_pos += 1
-        self.terminal_adapter.move_cursor(y_pos, x_pos)
-
     def erase_current_line(self):
-        y_pos, _ = self.terminal_adapter.get_coordinates()
-        self.terminal_adapter.move_cursor(y_pos, 0)
+        self.terminal_adapter.move_cursor_to_line_start()
         self.terminal_adapter.clear_to_eol()
         
     @hotkey_wrapper

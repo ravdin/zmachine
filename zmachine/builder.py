@@ -1,8 +1,6 @@
 from pathlib import Path
 from .screen import *
 from .enums import UIType
-from .curses import CursesAdapter
-from .graphics import GraphicsAdapter
 from .memory import MemoryMap
 from .event import EventManager
 from .input import InputStreamManager
@@ -50,8 +48,10 @@ class ZMachineBuilder:
         runtime_settings: RuntimeSettings
     ) -> ITerminalAdapter:
         if ui_type == UIType.TEXT and config.version <= 5:
+            from .curses import CursesAdapter
             return CursesAdapter()
         if ui_type == UIType.GRAPHICS or config.version == 6:
+            from .graphics import GraphicsAdapter
             return GraphicsAdapter(event_manager = event_manager, config = config, runtime_settings = runtime_settings)
         raise ZMachineException("Unrecognized UI type")
 
@@ -80,15 +80,17 @@ class ZMachineBuilder:
         interpreter execution begins. V4+ games need screen dimensions
         and interpreter identification in the header.
         """
+        font_height = terminal_adapter.font_size >> 8
+        font_width = terminal_adapter.font_size & 0xff
         memory_map.write_word(0x1e, INTERPRETER_NUMBER)
         memory_map.write_word(0x32, INTERPRETER_REVISION)
-        memory_map.write_byte(0x20, terminal_adapter.height)
-        memory_map.write_byte(0x21, terminal_adapter.width)
-        if version == 5:
+        memory_map.write_byte(0x20, terminal_adapter.height // font_height)
+        memory_map.write_byte(0x21, terminal_adapter.width // font_width)
+        if version >= 5:
             memory_map.write_word(0x22, terminal_adapter.width)
             memory_map.write_word(0x24, terminal_adapter.height)
-            memory_map.write_byte(0x26, 1)
-            memory_map.write_byte(0x27, 1)
+            memory_map.write_byte(0x26, font_width if version == 5 else font_height)
+            memory_map.write_byte(0x27, font_height if version == 5 else font_width)
             memory_map.write_byte(0x2c, DEFAULT_BACKGROUND_COLOR)
             memory_map.write_byte(0x2d, DEFAULT_FOREGROUND_COLOR)
 

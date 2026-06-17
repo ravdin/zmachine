@@ -1,7 +1,7 @@
 from typing import Final
 from .enums import Color, StoryEnum
 
-SUPPORTED_VERSIONS: Final[tuple[int, ...]] = (3, 4, 5)
+SUPPORTED_VERSIONS: Final[tuple[int, ...]] = (3, 4, 5, 6)
 
 # Interpreter identification
 INTERPRETER_REVISION: Final[int] = 0x101 # Write this as revision 1.1
@@ -117,7 +117,22 @@ STORY_VERSIONS: Final[dict[tuple[int, bytes], StoryEnum]] = \
     (10, b'880531'): StoryEnum.PLANETFALL,
     (21, b'871214'): StoryEnum.SHERLOCK,
     (26, b'880127'): StoryEnum.SHERLOCK,
-    (23, b'880706'): StoryEnum.WISHBRINGER
+    (23, b'880706'): StoryEnum.WISHBRINGER,
+    (54, b'890606'): StoryEnum.ARTHUR,
+    (63, b'890622'): StoryEnum.ARTHUR,
+    (74, b'890714'): StoryEnum.ARTHUR,
+    (26, b'890316'): StoryEnum.JOURNEY,
+    (30, b'890322'): StoryEnum.JOURNEY,
+    (77, b'890616'): StoryEnum.JOURNEY,
+    (83, b'890706'): StoryEnum.JOURNEY,
+    (292, b'890314'): StoryEnum.SHOGUN,
+    (295, b'890321'): StoryEnum.SHOGUN,
+    (311, b'890510'): StoryEnum.SHOGUN,
+    (322, b'890706'): StoryEnum.SHOGUN,
+    (296, b'881019'): StoryEnum.ZORK_ZERO,
+    (366, b'890323'): StoryEnum.ZORK_ZERO,
+    (383, b'890602'): StoryEnum.ZORK_ZERO,
+    (393, b'890714'): StoryEnum.ZORK_ZERO
 }
 
 FONT3_BITMAP: Final[dict[int, tuple[int, int, int, int, int, int, int, int]]] = \
