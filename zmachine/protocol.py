@@ -1,5 +1,6 @@
 from typing import Protocol, Callable, runtime_checkable
-from .enums import Color, RoutineType, FontEnum, PackedAddressType
+from dataclasses import dataclass
+from .enums import Color, RoutineType, FontEnum, PackedAddressType, ResourceType
 
 @runtime_checkable
 class ISerializable(Protocol):
@@ -84,6 +85,13 @@ class IObjectTable(Protocol):
         """Return the text of the given object number as a list of Z-characters."""
         ...
 
+@dataclass(frozen=True)
+class PictureResource:
+    resource_type: ResourceType
+    data: bytes = b''
+    width: int = 0
+    height: int = 0
+
 @runtime_checkable
 class IResourceData(Protocol):
     """
@@ -107,7 +115,7 @@ class IResourceData(Protocol):
     def is_adaptive_picture(self, number: int) -> bool:
         ...
 
-    def get_picture_data(self, number: int) -> bytes:
+    def get_picture_data(self, number: int) -> PictureResource | None:
         ...
 
     def get_sound_data(self, number: int) -> bytes:
@@ -279,8 +287,9 @@ class IScreen(Protocol):
         """Expose the underlying resources for reading."""
         ...
 
-    def restart_screen(self):
-        """Re-initialize screen settings on a restart."""
+    def reset_screen(self):
+        """Reset the screen for a game restart."""
+        ...
 
     def refresh_status_line(self, location: str, status: str):
         """Refresh the status line with the given text (v3 only)."""
@@ -334,6 +343,14 @@ class IScreen(Protocol):
 
     def set_font(self, font_id: int, window_id: int = -3) -> int:
         """Set the font of the output character."""
+        ...
+
+    def get_window_width(self, window_id: int) -> int:
+        """Get the width of a window, in pixels (V6)"""
+        ...
+
+    def get_font_width(self, window_id: int) -> int:
+        """Get the font width for a given window, in pixels (V6)"""
         ...
 
     def print_table(self, table: list[str]):

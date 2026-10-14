@@ -1,3 +1,4 @@
+import struct
 from dataclasses import dataclass, field
 from .constants import SUPPORTED_VERSIONS, STORY_VERSIONS
 from .enums import StoryEnum
@@ -58,35 +59,37 @@ class ZMachineConfig:
             else:
                 raise InvalidGameFileException(f"Unrecognized Z-Machine file") 
 
-        release_number = game_data[0x2:0x4]
-        high_memory_base_addr = int.from_bytes(game_data[0x4:0x6], "big")
-        initial_pc = int.from_bytes(game_data[0x6:0x8], "big")
-        dictionary_table_addr = int.from_bytes(game_data[0x8:0xa], "big")
-        object_table_addr = int.from_bytes(game_data[0xa:0xc], "big")
-        global_vars_table_addr = int.from_bytes(game_data[0xc:0xe], "big")
-        static_memory_base_addr = int.from_bytes(game_data[0xe:0x10], "big")
-        serial_number = game_data[0x12:0x18]
-        abbreviation_table_addr = int.from_bytes(game_data[0x18:0x1a], "big")
-        file_length = int.from_bytes(game_data[0x1a:0x1c], "big") << (1 if version <= 3 else 2 if version <= 5 else 3)
-        checksum = int.from_bytes(game_data[0x1c:0x1e], "big")
+        (
+            release_number,
+            high_memory_base_addr,
+            initial_pc,
+            dictionary_table_addr,
+            object_table_addr,
+            global_vars_table_addr,
+            static_memory_base_addr,
+            _,
+            serial_number,
+            abbreviation_table_addr,
+            file_length_raw,
+            checksum
+        ) = struct.unpack_from(">2s7H6s3H", game_data, 2)
+        file_length = file_length_raw << (1 if version <= 3 else 2 if version <= 5 else 3)
         interrupt_zchars: list[int] = []
         alphabet_table_addr = 0
         header_extension_addr = 0
         routine_offset = 0
         strings_offset = 0
-        story = STORY_VERSIONS.get((int.from_bytes(release_number, "big"), serial_number), StoryEnum.UNKNOWN)
+        story = STORY_VERSIONS.get(struct.unpack(">h", release_number) + (serial_number,), StoryEnum.UNKNOWN)
         if version >= 5:
-            zchars_addr = int.from_bytes(game_data[0x2e:0x30], "big")
+            zchars_addr, = struct.unpack_from(">H", game_data, 0x2e)
             zchar = game_data[zchars_addr]
             while zchar != 0:
                 interrupt_zchars += [zchar]
                 zchars_addr += 1
                 zchar = game_data[zchars_addr]
-            alphabet_table_addr = int.from_bytes(game_data[0x34:0x36], "big")
-            header_extension_addr = int.from_bytes(game_data[0x36:0x38], "big")
+            alphabet_table_addr, header_extension_addr = struct.unpack_from(">HH", game_data, 0x34)
         if version >= 6:
-            routine_offset = int.from_bytes(game_data[0x28:0x2a], "big") << 3
-            strings_offset = int.from_bytes(game_data[0x2a:0x2c], "big") << 3
+            routine_offset, strings_offset = (val << 3 for val in struct.unpack_from(">HH", game_data, 0x28))
 
         return cls(
             game_file = game_file,

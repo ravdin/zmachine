@@ -493,25 +493,26 @@ class GraphicsAdapter:
         """Get the width and height of a picture resource."""
         if not resource_data.is_valid_picture(number):
             return (0, 0)
-        picture_data = resource_data.get_picture_data(number)
+        picture_resource = resource_data.get_picture_data(number)
+        if picture_resource is None:
+            return (0, 0)
         scaling_ratio = resource_data.get_scaling_ratio(number, self.screen_width_pixels, self.screen_height_pixels)
-        if len(picture_data) == 8:
-            width = int.from_bytes(picture_data[0:4], "big")
-            height = int.from_bytes(picture_data[4:8], "big")
-        else:
-            surface = pygame.image.load(io.BytesIO(picture_data))
+        if len(picture_resource.data) > 0:
+            surface = pygame.image.load(io.BytesIO(picture_resource.data))
             width, height = surface.get_size()
+        else:
+            width, height = picture_resource.width, picture_resource.height
         return int(width * scaling_ratio), int(height * scaling_ratio)
     
     def draw_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
-        picture_data = resource_data.get_picture_data(number)
-        if len(picture_data) == 0:
+        picture_resource = resource_data.get_picture_data(number)
+        if picture_resource == None:
             raise InvalidPictureResourceException(number)
         
         scaling_ratio = resource_data.get_scaling_ratio(number, self.screen_width_pixels, self.screen_height_pixels)
         
         # TODO: Would probably be good to cache this.
-        surface = pygame.image.load(io.BytesIO(picture_data))
+        surface = pygame.image.load(io.BytesIO(picture_resource.data))
         if scaling_ratio != 1:
             scaled_width = scaling_ratio * surface.get_width()
             scaled_height = scaling_ratio * surface.get_height()

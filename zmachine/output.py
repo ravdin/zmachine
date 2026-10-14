@@ -133,7 +133,7 @@ class TranscriptStream(OutputStream):
         super().close()
         self.runtime_settings.transcript_active_flag = False
 
-    def register_delegates(self, event_manager):
+    def register_delegates(self, event_manager: EventManager):
         event_manager.pre_read_input += self.pre_read_input_handler
         event_manager.post_read_input += self.post_read_input_handler
         event_manager.on_quit += self.on_quit_handler

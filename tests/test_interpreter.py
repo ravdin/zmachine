@@ -564,6 +564,11 @@ class TestReadOperation:
             assert interpreter.read_word(fourth_word_addr) == 0
             # Could check that this memory is still zeroed or uninitialized
 
+        @pytest.mark.parametrize('sample_game_data', [3, 4, 5], indirect=True)
+        def test_restart_erases_screen(self, interpreter, mock_screen):
+            interpreter.do_restart()
+            mock_screen.reset_screen.assert_called_once()
+
 
 # ============================================================================
 # Future Test Classes

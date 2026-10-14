@@ -14,6 +14,48 @@ class WindowPosition(IntEnum):
     LOWER = 0
     UPPER = 1
 
+class WindowProperty(IntEnum):
+    Y_POS = 0
+    X_POS = 1
+    HEIGHT = 2
+    WIDTH = 3
+    Y_CURSOR = 4
+    X_CURSOR = 5
+    LEFT_MARGIN = 6
+    RIGHT_MARGIN = 7
+    NL_ROUTINE = 8
+    NL_COUNTDOWN = 9
+    TEXT_STYLE_ATTRIBUTES = 10
+    COLOR_DATA = 11
+    FONT_NUMBER = 12
+    FONT_SIZE = 13
+    WINDOW_ATTRIBUTES = 14
+    LINE_COUNT = 15
+    TRUE_FOREGROUND_COLOR = 16
+    TRUE_BACKGROUND_COLOR = 17
+
+class ChunkId(bytes, Enum):
+    FORM = b'FORM'
+    IFhd = b'IFhd'
+    CMem = b'CMem'
+    Stks = b'Stks'
+    IFRS = b'IFRS'
+    RIdx = b'RIdx'
+    RelN = b'RelN'
+    Reso = b'Reso'
+    APal = b'APal'
+
+class ResourceType(bytes, Enum):
+    Pict = b'Pict'
+    PNG  = b'PNG '
+    JPEG = b'JPEG'
+    Snd  = b'Snd '
+    Rect = b'Rect'
+    AIFF = b'AIFF'
+    Data = b'Data'
+    Exec = b'Exec'
+    ZCOD = b'ZCOD'
+
 class StatusType(IntEnum):
     SCORE = 0
     TIME = 1

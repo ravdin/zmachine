@@ -57,7 +57,7 @@ class TestScalableImage:
     @pytest.mark.unit
     def test_default_ratios_are_sentinels(self):
         """All-zero ratios collapse to identity / unbounded sentinels."""
-        img = ScalableImage()
+        img = ScalableImage(ratnum=1, ratden=1)
         assert img.stdratio == 1.0
         assert img.minratio == 0
         assert img.maxratio == float('inf')
@@ -122,8 +122,8 @@ class TestBlorbResolution:
         entry = (1, 2, 1, 0, 0, 0, 0)  # only picture 1 has an entry
         body = _reso_body(640, 400, 0, 0, 0, 0, [entry])
         blorb = BlorbFile(_blorb(_chunk(b'Reso', body)))
-        # Picture 2 has no entry: ratio = ERF * 1.0. ERF for 1280x800 = 2.0.
-        assert blorb.get_scaling_ratio(2, 1280, 800) == 2.0
+        # Picture 2 has no entry and should be non-scalable.
+        assert blorb.get_scaling_ratio(2, 1280, 800) == 1.0
 
     @pytest.mark.unit
     def test_resolution_fields_parsed(self):

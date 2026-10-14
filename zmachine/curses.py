@@ -1,6 +1,6 @@
 import curses
 import atexit
-from .enums import TextStyle, Color, FontEnum, TerminalEscape
+from .enums import TextStyle, Color, TerminalEscape
 from .constants import ESCAPE_CHAR
 
 
@@ -25,7 +25,6 @@ class CursesAdapter:
     CURSES_COLORS = {v: k for k, v in COLORS.items()}
 
     def __init__(self):
-        super().__init__()
         self.main_screen = curses.initscr()
         self.color_pairs = [[0] * 10 for _ in range(10)]
         self.color_pair_index = 1
