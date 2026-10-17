@@ -572,7 +572,7 @@ class ZMachineInterpreter:
                 else:
                     window_id = ACTIVE_WINDOW_ID
                     width_pixels = -width
-                width = width_pixels // self.screen.get_font_width(window_id)
+                width = width_pixels // max(self.screen.get_font_width(window_id), 1)
             self.output_manager.memory_stream.open(table_addr, buffering, width)
         elif -stream_id == OutputStreamType.MEMORY:
             self.output_manager.memory_stream.close()

@@ -79,7 +79,7 @@ class ZMachineConfig:
         header_extension_addr = 0
         routine_offset = 0
         strings_offset = 0
-        story = STORY_VERSIONS.get(struct.unpack(">h", release_number) + (serial_number,), StoryEnum.UNKNOWN)
+        story = STORY_VERSIONS.get(struct.unpack(">H", release_number) + (serial_number,), StoryEnum.UNKNOWN)
         if version >= 5:
             zchars_addr, = struct.unpack_from(">H", game_data, 0x2e)
             zchar = game_data[zchars_addr]

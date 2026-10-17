@@ -17,8 +17,8 @@ class WindowResolution:
 
 @dataclass(frozen=True)
 class ScalableImage:
-    ratnum: int = 0
-    ratden: int = 0
+    ratnum: int = 1
+    ratden: int = 1
     minnum: int = 0
     minden: int = 0
     maxnum: int = 0
@@ -69,7 +69,6 @@ class BlorbFile:
         self._picture_resources: dict[int, int] = {}
         self._window_resolution: WindowResolution | None = None
         self._scalable_image_entries: dict[int, ScalableImage] = {}
-        self._executable_addr: int = 0
         self._release_number = 0
         self._adaptive_pictures: set[int] = set()
         if len(data) > 0:
@@ -150,15 +149,18 @@ class BlorbFile:
                 self._sound_resources[index] = start
             elif usage == ResourceType.Pict:
                 self._picture_resources[index] = start
-            elif usage == ResourceType.Exec:
-                self._executable_addr = start
             pos += 12
 
     def _parse_resolution(self, pos: int):
         chunk_len, = struct.unpack_from(">I", self.data, pos + 4)
-        self._window_resolution = WindowResolution(
+        window_resolution = WindowResolution(
             *struct.unpack_from(">6I", self.data, pos + 8)
         )
+        if window_resolution.standard_x == 0 or window_resolution.standard_y == 0:
+            # This shouldn't be the standard window size, ignore if this is the case for some reason.
+            logger.warning(f'Invalid window resolution {window_resolution.standard_x}x{window_resolution.standard_y}')
+            return
+        self._window_resolution = window_resolution
         entry_pos = pos + 32
         while entry_pos < pos + chunk_len + 8:
             number, = struct.unpack_from(">I", self.data, entry_pos)
@@ -184,19 +186,19 @@ class BlorbFile:
         if number not in self._picture_resources:
             return None
         offset = self._picture_resources[number]
-        resource_type, chunk_len = struct.unpack_from(">4sI", self.data, offset)
-        if resource_type == ResourceType.Rect:
+        chunk_id, chunk_len = struct.unpack_from(">4sI", self.data, offset)
+        if chunk_id == ChunkId.Rect:
             width, height = struct.unpack_from(">II", self.data, offset + 8)
             data = b''
-        elif resource_type in (ResourceType.JPEG, ResourceType.PNG):
+        elif chunk_id in (ChunkId.JPEG, ChunkId.PNG):
             width, height = 0, 0
             data = self.data[offset + 8:offset + 8 + chunk_len]
         else:
-            logger.warning(f'Picture resource type "{resource_type!r}" not recognized')
+            logger.warning(f'Chunk ID "{chunk_id!r}" not recognized')
             return None
-        logger.info(f'Fetching {resource_type!r} image from address {offset:x}')
+        logger.info(f'Fetching {chunk_id!r} image from address {offset:x}')
         return PictureResource(
-            resource_type = resource_type,
+            chunk_id = ChunkId(chunk_id),
             data = data,
             width = width,
             height = height

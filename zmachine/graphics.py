@@ -16,7 +16,7 @@ from .protocol import IResourceData
 from .event import EventManager, MouseClickEventArgs, RoutineCallEventArgs
 from .config import ZMachineConfig
 from .settings import RuntimeSettings
-from .enums import Color, FontEnum, FunctionKey, StoryEnum, MouseClick
+from .enums import Color, FontEnum, FunctionKey, StoryEnum, MouseClick, ChunkId
 from .constants import FONT3_BITMAP, DEFAULT_FONT_SIZE
 from .error import ZMachineException, InvalidPictureResourceException, CursorOutOfBoundsException
 from .logging import graphics_logger as logger
@@ -506,8 +506,14 @@ class GraphicsAdapter:
     
     def draw_picture(self, number: int, top: int, left: int, resource_data: IResourceData):
         picture_resource = resource_data.get_picture_data(number)
-        if picture_resource == None:
+        if picture_resource is None:
             raise InvalidPictureResourceException(number)
+
+        if picture_resource.chunk_id == ChunkId.Rect:
+            # Per the Blorb spec, it's not valid to draw a picture for a Rect resource.
+            # This shouldn't happen in an Infocom game.
+            logger.warning(f"Invalid Rect resource for draw_picture: number {number}")
+            return
         
         scaling_ratio = resource_data.get_scaling_ratio(number, self.screen_width_pixels, self.screen_height_pixels)
         

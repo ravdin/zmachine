@@ -8,7 +8,7 @@ from typing import Tuple
 from zmachine.config import ZMachineConfig
 from zmachine.memory import MemoryMap
 from zmachine.enums import RoutineType, WindowPosition, FontEnum
-from zmachine.protocol import IObjectTable
+from zmachine.protocol import IObjectTable, PictureResource
 from zmachine.text import TextUtils
 
 # Color enum will be added in PR #10
@@ -329,8 +329,8 @@ class MockResourceData:
     def is_adaptive_picture(self, number: int) -> bool:
         return False
 
-    def get_picture_data(self, number: int) -> bytes:
-        return b''
+    def get_picture_data(self, number: int) -> PictureResource | None:
+        return None
 
     def get_sound_data(self, number: int) -> bytes:
         return b''

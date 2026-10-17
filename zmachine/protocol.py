@@ -1,6 +1,6 @@
 from typing import Protocol, Callable, runtime_checkable
 from dataclasses import dataclass
-from .enums import Color, RoutineType, FontEnum, PackedAddressType, ResourceType
+from .enums import Color, RoutineType, FontEnum, PackedAddressType, ChunkId
 
 @runtime_checkable
 class ISerializable(Protocol):
@@ -87,7 +87,7 @@ class IObjectTable(Protocol):
 
 @dataclass(frozen=True)
 class PictureResource:
-    resource_type: ResourceType
+    chunk_id: ChunkId
     data: bytes = b''
     width: int = 0
     height: int = 0

@@ -44,17 +44,17 @@ class ChunkId(bytes, Enum):
     RelN = b'RelN'
     Reso = b'Reso'
     APal = b'APal'
+    PNG  = b'PNG '
+    JPEG = b'JPEG'
+    Rect = b'Rect'
+    AIFF = b'AIFF'
+    ZCOD = b'ZCOD'
 
 class ResourceType(bytes, Enum):
     Pict = b'Pict'
-    PNG  = b'PNG '
-    JPEG = b'JPEG'
     Snd  = b'Snd '
-    Rect = b'Rect'
-    AIFF = b'AIFF'
     Data = b'Data'
     Exec = b'Exec'
-    ZCOD = b'ZCOD'
 
 class StatusType(IntEnum):
     SCORE = 0

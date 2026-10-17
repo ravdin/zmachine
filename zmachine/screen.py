@@ -436,6 +436,11 @@ class ScreenV4(BaseScreen):
         self._version = 4
         self.reset_cursor(self.windows[0])
 
+    def reset_screen(self):
+        self.erase_window(-1)
+        lower_window = self.windows[0]
+        self.set_active_window(lower_window)
+
     def apply_text_settings(self, window: Window):
         self.terminal_adapter.apply_style_attributes(window.text_style_attributes)
 
