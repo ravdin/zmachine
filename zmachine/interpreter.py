@@ -7,7 +7,8 @@ from .event import EventArgs, EventManager, MouseClickEventArgs, RoutineCallEven
 from .protocol import IObjectTable, IScreen, IInputSource, IOutputStreamManager, IQuetzal
 from .text import TextUtils
 from .undo import UndoStack
-from .enums import WindowPosition, StatusType, RoutineType, OutputStreamType, PackedAddressType
+from .constants import ACTIVE_WINDOW_ID
+from .enums import StatusType, RoutineType, OutputStreamType, PackedAddressType
 from .stack import CallStack, EvalStack
 from .logging import LogLevel, opcodes_logger, interpreter_logger
 from .error import *
@@ -148,7 +149,7 @@ class ZMachineInterpreter:
             self.memory_map.reset_dynamic_memory(dynamic_mem)
         self.pc = self.config.initial_pc if self.version < 6 else 0
         self.call_stack = self.init_call_stack()
-        self.screen.restart_screen()
+        self.screen.reset_screen()
 
     def do_save(self) -> bool:
         return self.quetzal.do_save(self.pc, self.call_stack)
@@ -552,32 +553,29 @@ class ZMachineInterpreter:
 
     def do_select_output_stream(self, stream_id: int, table_addr: int = 0, buffering: bool = False, width: int = 0):
         interpreter_logger.info(f"Selecting output stream {stream_id}")
-        if abs(stream_id) == OutputStreamType.SCREEN:
-            if stream_id > 0:
-                self.output_manager.screen_stream.open()
-            else:
-                self.output_manager.screen_stream.close()
-        elif abs(stream_id) == OutputStreamType.TRANSCRIPT:
-            if stream_id > 0:
-                self.output_manager.transcript_stream.open()
-            else:
-                self.output_manager.transcript_stream.close()
-        elif abs(stream_id) == OutputStreamType.MEMORY:
-            if stream_id > 0:
-                if buffering:
-                    if width >= 0:
-                        window_id = width
-                        width_pixels = self.screen.get_window_property(window_id, 3)
-                        left_margin = self.screen.get_window_property(window_id, 6)
-                        right_margin = self.screen.get_window_property(window_id, 7)
-                        width = width_pixels - left_margin - right_margin
-                    else:
-                        width = -width
-                    char_width_pixels = self.screen.get_window_property(window_id, 13) & 0xff
-                    width //= char_width_pixels
-                self.output_manager.memory_stream.open(table_addr, buffering, width)
-            else:
-                self.output_manager.memory_stream.close()
+        if stream_id == OutputStreamType.SCREEN:
+            self.output_manager.screen_stream.open()
+        elif -stream_id == OutputStreamType.SCREEN:
+            self.output_manager.screen_stream.close()
+        elif stream_id == OutputStreamType.TRANSCRIPT:
+            self.output_manager.transcript_stream.open()
+        elif -stream_id == OutputStreamType.TRANSCRIPT:
+            self.output_manager.transcript_stream.close()
+        elif stream_id == OutputStreamType.MEMORY:
+            if buffering:
+                # This means the game wants to justify text for a given width (V6)
+                # If the given width is zero or positive, justify the text for a window with that number.
+                # Otherwise, justify for a box -width pixels wide.
+                if width >= 0:
+                    window_id = width
+                    width_pixels = self.screen.get_window_width(window_id)
+                else:
+                    window_id = ACTIVE_WINDOW_ID
+                    width_pixels = -width
+                width = width_pixels // max(self.screen.get_font_width(window_id), 1)
+            self.output_manager.memory_stream.open(table_addr, buffering, width)
+        elif -stream_id == OutputStreamType.MEMORY:
+            self.output_manager.memory_stream.close()
         self.event_manager.on_select_output_stream.invoke(self, EventArgs())
 
     def do_sound_effect(self, number: int, effect: int = 0, volume: int = 0, routine: int = 0):

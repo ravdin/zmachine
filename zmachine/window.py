@@ -1,29 +1,8 @@
-from .enums import FontEnum
+from .enums import FontEnum, WindowProperty
 from .constants import DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR
 from .error import InvalidScreenOperationException
 
 class Window:
-    PROPERTIES = {
-        0: 'y_pos',
-        1: 'x_pos',
-        2: 'height',
-        3: 'width',
-        4: 'y_cursor',
-        5: 'x_cursor',
-        6: 'left_margin',
-        7: 'right_margin',
-        8: 'nl_routine',
-        9: 'nl_countdown',
-        10: 'text_style_attributes',
-        11: 'color_data',
-        12: 'font_number',
-        13: 'font_size',
-        14: 'window_attributes',
-        15: 'line_count',
-        16: 'true_foreground_color',
-        17: 'true_background_color'
-    }
-
     def __init__(self, height: int, width: int, font_size: int):
         # The Window class uses 1-index for screen coordinates, to match values read from the game.
         self.y_pos: int = 1
@@ -48,14 +27,18 @@ class Window:
         self.true_background_color: int = 0         # Black
 
     def get_property(self, property_number: int) -> int:
-        property_name = self.PROPERTIES.get(property_number)
-        if property_name is None:
+        try:
+            property = WindowProperty(property_number)
+            property_name = property.name.lower()
+        except ValueError:
             raise InvalidScreenOperationException(f'Unknown property number: {property_number}')
         return int(getattr(self, property_name))
     
     def set_property(self, property_number: int, value: int):
-        property_name = self.PROPERTIES.get(property_number)
-        if property_name is None:
+        try:
+            property = WindowProperty(property_number)
+            property_name = property.name.lower()
+        except ValueError:
             raise InvalidScreenOperationException(f'Unknown property number: {property_number}')
         setattr(self, property_name, value)
 

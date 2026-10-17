@@ -29,13 +29,6 @@ class MemoryMap:
             return self._memory_map[item]
         raise Exception('Invalid type for array index')
 
-    def __setitem__(self, key, value):
-        if isinstance(key, slice):
-            self._memory_map[key.start:key.stop:key.step] = value
-        elif isinstance(key, int):
-            self._memory_map[key] = value
-        raise Exception('Invalid type for array index')
-
     def byte_addr(self, ptr: int) -> int:
         return self.read_word(ptr)
 
@@ -45,28 +38,28 @@ class MemoryMap:
     def read_byte(self, addr: int) -> int:
         if logger.isEnabledFor(LogLevel.DEBUG):
             logger.debug(f"READ 0x{addr:04X}")
-        if addr >= len(self._memory_map):
+        if addr < 0 or addr >= len(self._memory_map):
             raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr]
 
     def read_word(self, addr: int) -> int:
         if logger.isEnabledFor(LogLevel.DEBUG):
             logger.debug(f"READ 0x{addr:04X}:0x{addr + 1:04X}")
-        if addr + 1 >= len(self._memory_map):
+        if addr < 0 or addr + 1 >= len(self._memory_map):
             raise InvalidMemoryException(f"Address {addr:x} out of bounds")
         return self._memory_map[addr] << 8 | self._memory_map[addr + 1]
 
     def write_byte(self, addr: int, val: int):
         if logger.isEnabledFor(LogLevel.DEBUG):
             logger.debug(f"WRITE 0x{addr:04X} = 0x{val:02X}")
-        if addr >= self._static_memory_base_addr:
+        if addr < 0 or addr >= self._static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val & 0xff
 
     def write_word(self, addr: int, val: int):
         if logger.isEnabledFor(LogLevel.DEBUG):
-            logger.debug(f"WRITE 0x{addr:04X}:0x{addr + 1:04X} = 0x{val:02X}")
-        if addr + 1 >= self._static_memory_base_addr:
+            logger.debug(f"WRITE 0x{addr:04X}:0x{addr + 1:04X} = 0x{val:04X}")
+        if addr < 0 or addr + 1 >= self._static_memory_base_addr:
             raise IllegalWriteException(addr)
         self._memory_map[addr] = val >> 8 & 0xff
         self._memory_map[addr + 1] = val & 0xff
