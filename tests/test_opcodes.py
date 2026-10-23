@@ -17,8 +17,7 @@ from zmachine.opcodes import (
     op_loadb, op_storeb, op_loadw, op_storew,
     op_test,
     op_random,
-    op_push, op_pull,
-    sign_uint16
+    op_push, op_pull
 )
 
 
@@ -435,6 +434,17 @@ class TestArithmeticOpcodes:
         """Execute mod opcode."""
         op_mod(interp, a, b)
         return interp.stored_value
+
+    @pytest.mark.parametrize('a, b, expected', [
+        (-6, 3, 0),    # currently -3
+        (6, -3, 0),    # currently 3
+        (-6, -3, 0),   # control: already correct
+        (-7, 3, -1),   # control: already correct (C semantics: sign follows dividend)
+        (7, -3, 1),    # control: already correct
+    ])
+    def test_mod_truncates_toward_zero(self, mock_interpreter, a, b, expected):
+        op_mod(mock_interpreter, a & 0xffff, b & 0xffff)
+        assert mock_interpreter.stored_value == expected & 0xffff
 
 
 @pytest.mark.unit
