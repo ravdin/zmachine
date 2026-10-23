@@ -4,7 +4,7 @@ Shared pytest fixtures and test utilities for Z-Machine tests.
 This module provides common fixtures that can be used across all test modules.
 """
 import pytest
-from typing import Tuple
+from typing import Tuple, Callable
 from zmachine.config import ZMachineConfig
 from zmachine.memory import MemoryMap
 from zmachine.enums import RoutineType, WindowPosition, FontEnum
@@ -336,15 +336,6 @@ class MockResourceData:
         return b''
 
 
-@pytest.fixture
-def graphics_adapter():
-    return MockGraphicsAdapter()
-
-@pytest.fixture
-def resource_data():
-    return MockResourceData()
-
-
 class MockScreen:
     """Mock screen for testing without terminal dependencies."""
     
@@ -394,6 +385,40 @@ class MockScreen:
         self.operations.append(('sound_effect', effect, volume, repeats, routine))
 
 
+class MockInputSource:
+    TIMEOUT = -1
+
+    def __init__(self):
+        self.input_chars = []
+
+    def select_keyboard_stream(self):
+        pass
+
+    def select_playback_stream(self, commands: list[str]):
+        pass
+
+    def read_input(self,
+        timeout_ms: int,
+        text_buffer: list[int],
+        interrupt_routine_caller: Callable[[int], int],
+        interrupt_routine_addr: int,
+        echo: bool):
+            i = 0
+            while i < len(self.input_chars):
+                if i >= len(text_buffer):
+                    break
+                ch = self.input_chars[i]
+                if ch == self.TIMEOUT:
+                    if interrupt_routine_caller(interrupt_routine_addr) != 0:
+                        text_buffer[:] = [0] * len(text_buffer)
+                        return
+                    continue
+                text_buffer[i] = ch
+                i += 1
+            if i < len(text_buffer):
+                text_buffer[i] = 0
+            
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -413,6 +438,19 @@ def mock_terminal_adapter():
 def mock_screen():
     """Provide a mock screen for testing."""
     return MockScreen()
+
+
+@pytest.fixture
+def graphics_adapter():
+    return MockGraphicsAdapter()
+
+@pytest.fixture
+def resource_data():
+    return MockResourceData()
+
+@pytest.fixture
+def mock_input_source():
+    return MockInputSource()
 
 
 @pytest.fixture

@@ -489,9 +489,9 @@ class ZMachineInterpreter:
         for i in range(input_len - 1):
             self.write_byte(text_buffer_addr + text_addr_offset + i, input_chars[i])
         if self.version <= 4:
-            self.write_byte(text_buffer_addr + input_len, 0)
+            self.write_byte(text_buffer_addr + max(input_len, 1), 0)
         else:
-            self.write_byte(text_buffer_addr + 1, input_len - 1)
+            self.write_byte(text_buffer_addr + 1, max(input_len - 1, 0))
             # A terminating char of 0 means the read timed out.
             # It's possible that a direct call has reset the PC and call stack through a
             # restart or a restore.

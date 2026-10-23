@@ -599,7 +599,11 @@ class IInputSource(Protocol):
         interrupt_routine_caller: Callable[[int], int],
         interrupt_routine_addr: int,
         echo: bool):
-        """Read input with the given timeout and echo settings, storing the result in the provided text buffer."""
+        """Read input with the given timeout and echo settings, storing the result in the provided text buffer.
+        On return, the text buffer contains the typed characters, followed by the terminating character, then 0.
+        For op_read_char, the typed character is text_buffer[0].
+        If the interrupt routine aborts the read, text_buffer[0] is 0.
+        """
         ...
 
 @runtime_checkable

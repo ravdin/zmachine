@@ -93,7 +93,7 @@ class TextUtils:
         return search_method()
 
     @staticmethod
-    def tokenize(command, separator_chars=None):
+    def tokenize(command: str, separator_chars=None):
         if separator_chars is None:
             separator_chars = [',', '.', '"']
         words = list(filter(lambda w: w != '', command.split(' ')))[::-1]
@@ -116,7 +116,7 @@ class TextUtils:
                 tokens += [word]
         for t in tokens:
             pos = command.find(t, current_pos)
-            current_pos = pos
+            current_pos = pos + len(t)
             positions += [pos]
         return tokens, positions
 

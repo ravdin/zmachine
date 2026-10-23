@@ -336,7 +336,7 @@ def op_mod(zm: IZMachineInterpreter, *operands: int):
     result = a % b
     # Python's modulo works differently from the C compiler for negative numbers.
     # This interpreter will be consistent with what historical interpreters likely would have done.
-    if a < 0 < b or a > 0 > b:
+    if result != 0 and (a < 0 < b or a > 0 > b):
         result -= b
     zm.do_store(result)
 

@@ -200,13 +200,17 @@ class MemoryStream(OutputStream):
 
     def write(self, text: str, newline: bool):
         # Add to the output buffer if necessary.
-        if self.buffer_ptr + len(text) >= len(self.buffer):
+        textlen = len(text) + (1 if newline else 0)
+        while self.buffer_ptr + textlen >= len(self.buffer):
             self.buffer += [0] * self.BUFFER_LEN
         for c in text:
             zscii_code = ord(c)
             if zscii_code == 10:
                 zscii_code = 13
             self.buffer[self.buffer_ptr] = zscii_code
+            self.buffer_ptr += 1
+        if newline:
+            self.buffer[self.buffer_ptr] = 13
             self.buffer_ptr += 1
 
     def close(self):
@@ -240,7 +244,7 @@ class MemoryStream(OutputStream):
         pos = buffer_start
         while pos < self.buffer_ptr:
             buffer_len = self.buffer_ptr - pos
-            remaining_buffer = self.buffer[pos:]
+            remaining_buffer = self.buffer[pos:pos + buffer_len]
             nl_index = remaining_buffer.index(13) if 13 in remaining_buffer else -1
             if 0 <= nl_index < width:
                 table_addr = self.flush(table_addr, pos, min(width, nl_index + 1))
@@ -249,8 +253,9 @@ class MemoryStream(OutputStream):
             if buffer_len <= width:
                 table_addr = self.flush(table_addr, pos, buffer_len)
                 break
-            if 32 in remaining_buffer[:width + 1]:
-                space_index = width - 1 - remaining_buffer[:width + 1:-1].index(32)
+            justified_text = remaining_buffer[:width + 1]
+            if 32 in justified_text:
+                space_index = len(justified_text) - 1 - justified_text[::-1].index(32)
                 table_addr = self.flush(table_addr, pos, space_index, space_index < width)
                 pos += space_index + 1
                 continue

@@ -61,9 +61,8 @@ class InputStreamManager:
                                       interrupt_routine_addr=interrupt_routine_addr,
                                       echo=echo)
         input_len = 1 if len(text_buffer) == 1 else text_buffer.index(0)
-        input_chars = text_buffer[:input_len]
-        terminating_char = input_chars[-1]
-        command = None if input_len <= 1 else bytearray(input_chars[:-1]).decode()
+        terminating_char = text_buffer[input_len - 1] if input_len > 0 else 0
+        command = bytearray(text_buffer[:input_len - 1]).decode() if input_len > 1 else None
         post_input_event_args = PostReadInputEventArgs(command=command, terminating_char=terminating_char)
         self.event_manager.post_read_input.invoke(self, post_input_event_args)
 
@@ -152,7 +151,7 @@ class KeyboardInputStream(InputStream):
             if c == -1:
                 # Timed out.
                 if interrupt_routine_caller(interrupt_routine_addr) != 0:
-                    text_buffer[0] = 0
+                    text_buffer[:buffer_pos] = [0] * buffer_pos
                     return
                 continue
             elif c in (8, 127):

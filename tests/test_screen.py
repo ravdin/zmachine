@@ -8,6 +8,7 @@ Critical tests include:
 - Color handling
 """
 import pytest
+import itertools
 from unittest.mock import MagicMock
 from zmachine.screen import ScreenV3, ScreenV4, ScreenV5, ScreenV6
 from zmachine.window import Window
@@ -1104,3 +1105,25 @@ class TestScreenV6CursorEnabled:
         assert graphics_adapter.cursor_enabled is False
         screen.set_cursor_enabled(True)
         assert graphics_adapter.cursor_enabled is True
+
+@pytest.mark.regression
+class TestWrapZeroWidthWindow:
+ 
+    def test_wrap_lines_terminates(self, graphics_adapter, resource_data):
+        # This test guards against a non-terminating loop when the window width
+        # is less than a single character (v6).
+        screen = ScreenV6(graphics_adapter, resource_data, EventManager())
+        screen.windows[2].window_attributes = 0x1  # wrapping on
+        screen.windows[3].window_attributes = 0x1
+        screen.windows[3].width = 100
+        screen.windows[3].left_margin = 60
+        screen.windows[3].right_margin = 60
+ 
+        cap = 100
+
+        # Verify a zero width window and a window where the margins exceed the window width
+        # (i.e. the window width is negative).
+        for window_id in (2, 3):
+            screen.set_window(window_id)
+            lines = list(itertools.islice(screen.wrap_lines("hello"), cap))
+            assert len(lines) < cap
