@@ -131,6 +131,24 @@ class TestZCharEncoding:
         assert len(result) > 0
         assert result == [0x46, 0x94, 0xC0, 0xA5]
 
+@pytest.mark.regression
+class TestTokenizePositions:
+ 
+    SEPARATORS = [',', '.', '"']
+ 
+    @pytest.mark.parametrize('command, expected_tokens, expected_positions', [
+        # 'a' currently matches inside "take" at position 1.
+        ("take a lamp", ['take', 'a', 'lamp'], [0, 5, 7]),
+        # 'in' currently matches inside "coin" at position 10.
+        ("put the coin in the box", ['put', 'the', 'coin', 'in', 'the', 'box'], [0, 4, 8, 13, 16, 20]),
+        # A repeated word currently gets the position of its first occurrence.
+        ("the the", ['the', 'the'], [0, 4]),
+    ])
+    def test_positions(self, text_utils, command, expected_tokens, expected_positions):
+        tokens, positions = text_utils.tokenize(command, self.SEPARATORS)
+        assert tokens == expected_tokens
+        assert positions == expected_positions
+
 
 # TODO: Add tests for:
 # - Abbreviation table lookup

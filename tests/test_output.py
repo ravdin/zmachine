@@ -5,7 +5,6 @@ Tests the refactored output stream API from PR #10.
 """
 import pytest
 from zmachine.output import OutputStreamManager, OutputStream, ScreenStream, MemoryStream
-from zmachine.enums import OutputStreamType
 from zmachine.error import StreamException
 
 
@@ -203,6 +202,24 @@ class TestScreenStream:
 @pytest.mark.unit
 class TestMemoryStream:
     """Test suite for MemoryStream."""
+
+    TABLE_ADDR = 0x100
+
+    def read_table(self, memory_map, addr) -> str:
+        length = memory_map.read_word(addr)
+        return ''.join(chr(memory_map.read_byte(addr + 2 + i)) for i in range(length))
+    
+    
+    def read_buffered_lines(self, memory_map, addr) -> list[str]:
+        """Read V6 buffered output: a series of (length word, chars) lines ending in a 0 word."""
+        lines = []
+        while True:
+            length = memory_map.read_word(addr)
+            if length == 0:
+                return lines
+            line = ''.join(chr(memory_map.read_byte(addr + 2 + i)) for i in range(length))
+            lines.append(line.rstrip('\r'))
+            addr += 2 + length
     
     @pytest.mark.unit
     def test_memory_stream_buffers_output(self, memory_map):
@@ -233,6 +250,55 @@ class TestMemoryStream:
         # One more should raise
         with pytest.raises(StreamException):
             stream.open(0x2000, False, 0)
+
+    @pytest.mark.unit
+    def test_newline_is_written(self, memory_map):
+        stream = MemoryStream(memory_map)
+        stream.open(self.TABLE_ADDR, False, 0)
+        stream.write("abc", False)
+        stream.write("", True)       # e.g. op_new_line while stream 3 is active
+        stream.write("def", False)
+        stream.close()
+ 
+        # Currently 'abcdef': write() ignores the newline flag.
+        assert self.read_table(memory_map, self.TABLE_ADDR) == "abc\rdef"
+
+    @pytest.mark.unit
+    def test_long_write(self, memory_map):
+        stream = MemoryStream(memory_map)
+        stream.open(self.TABLE_ADDR, False, 0)
+ 
+        # Currently raises IndexError: the buffer grows by 256 only once per write.
+        stream.write("x" * 600, False)
+        stream.close()
+ 
+        assert self.read_table(memory_map, self.TABLE_ADDR) == "x" * 600
+
+    @pytest.mark.unit
+    def test_buffered_wraps_at_spaces(self, memory_map):
+        stream = MemoryStream(memory_map)
+        stream.open(self.TABLE_ADDR, True, 10)
+        stream.write("hello world foo bar baz", False)
+ 
+        # Currently raises ValueError from remaining_buffer[:width + 1:-1].index(32).
+        stream.close()
+ 
+        assert self.read_buffered_lines(memory_map, self.TABLE_ADDR) == ["hello", "world foo", "bar baz"]
+
+    @pytest.mark.unit
+    def test_buffered_ignores_stale_buffer_contents(self, memory_map):
+        stream = MemoryStream(memory_map)
+        # The first stream leaves "abc\rdef" in the internal buffer after it closes.
+        stream.open(self.TABLE_ADDR, False, 0)
+        stream.write("abc\ndef", False)
+        stream.close()
+ 
+        stream.open(self.TABLE_ADDR, True, 10)
+        stream.write("hi", False)
+        stream.close()
+ 
+        # The wrap search looks past buffer_ptr and can pick up the old contents.
+        assert self.read_buffered_lines(memory_map, self.TABLE_ADDR) == ["hi"]
 
 
 @pytest.mark.integration
