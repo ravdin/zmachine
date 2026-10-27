@@ -17,8 +17,7 @@ from zmachine.opcodes import (
     op_loadb, op_storeb, op_loadw, op_storew,
     op_test,
     op_random,
-    op_push, op_pull,
-    sign_uint16
+    op_push, op_pull
 )
 
 
@@ -435,6 +434,19 @@ class TestArithmeticOpcodes:
         """Execute mod opcode."""
         op_mod(interp, a, b)
         return interp.stored_value
+
+    @pytest.mark.parametrize('a, b, expected', [
+        (-6, 3, 0),
+        (6, -3, 0),
+        (-6, -3, 0),
+        (-7, 3, -1),
+        (7, -3, 1),
+    ])
+    def test_mod_truncates_toward_zero(self, mock_interpreter, a, b, expected):
+        # Verify that the mod operation works correctly when the operands
+        # are exact multiples with opposite signs.
+        op_mod(mock_interpreter, a & 0xffff, b & 0xffff)
+        assert mock_interpreter.stored_value == expected & 0xffff
 
 
 @pytest.mark.unit

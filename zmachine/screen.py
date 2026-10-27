@@ -367,6 +367,13 @@ class BaseScreen:
             yield text[:available_width_chars]
             return
 
+        line_capacity = (active_window.width - active_window.left_margin - active_window.right_margin) // char_width
+        if line_capacity <= 0:
+            # Edge case, but we'll cover to avoid an infinite loop: there's nothing to do here
+            # if for some reason the game wants to word wrap to a zero width screen.
+            logger.warning(f"Attempting to word wrap '{text}' to a zero width screen")
+            return
+
         while text_pos < len(text):
             available_width_units = active_window.width - \
                 active_window.right_margin - \
